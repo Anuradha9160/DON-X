@@ -455,7 +455,7 @@ class AsyncMega:
             ml._total_downloaded_bytes = getattr(ml, "_total_downloaded_bytes", 0)
             ml._speed = 0
             ml._smoothed_speed = 0
-            ml._target_handle = parentNode.getHandle() if parentNode else None
+            ml._target_handle = _get_node_handle(parentNode) if parentNode else None
             ml._target_name = customName
             ml._uploaded_node_handle = None
             ml._export_link = None
@@ -784,13 +784,13 @@ class MegaAppListener(MegaListener):
                 return
             if self.is_cancelled:
                 token = self._cancel_token
-                if token is not None and not token.isCancelled():
+                if token is not None and not _call_attr(token, "isCancelled", False):
                     try:
-                        token.cancel()
+                        _call_attr(token, "cancel")
                     except Exception:
                         pass
                 try:
-                    api.cancelTransfer(transfer, None)
+                    _call_attr(api, "cancelTransfer", None, transfer, None)
                 except Exception:
                     pass
                 return
@@ -893,8 +893,8 @@ class MegaAppListener(MegaListener):
                 return
             if not self._is_target_transfer(transfer):
                 return
-            err_code = error.getErrorCode() if error else 0
-            err_str = error.toString() if error else "unknown"
+            err_code = _call_attr(error, "getErrorCode", 0) if error else 0
+            err_str = _call_attr(error, "toString", "unknown") if error else "unknown"
             LOGGER.warning("Mega: onTransferTemporaryError err=%s", err_code)
             if err_code == MegaError.API_EOVERQUOTA:
                 msg = f"TransferTempError: Over quota: {err_str}"
@@ -919,15 +919,15 @@ class MegaAppListener(MegaListener):
             return
         self.is_cancelled = True
         token = self._cancel_token
-        if token is not None and not token.isCancelled():
+        if token is not None and not _call_attr(token, "isCancelled", False):
             try:
-                token.cancel()
+                _call_attr(token, "cancel")
             except Exception as e:
                 LOGGER.error(f"Mega cancel-token cancel failed: {e}")
         current = getattr(self, "_current_transfer", None)
         if current is not None:
             try:
-                self._async_api.api.cancelTransfer(current, None)
+                _call_attr(self._async_api.api, "cancelTransfer", None, current, None)
             except Exception as e:
                 LOGGER.error(f"Mega cancel-transfer failed: {e}")
         self._set_request_event()
@@ -1059,14 +1059,10 @@ class MegaFolderListener(MegaListener):
             LOGGER.error(f"MegaFolder transfer future resolve failed: {e}")
 
     def _cache_node_data(self, node):
-        try:
-            self._name = node.getName()
-        except Exception:
-            pass
-        try:
-            self._handle = node.getHandle()
-        except Exception:
-            pass
+        if not node:
+            return
+        self._name = _get_node_name(node)
+        self._handle = _get_node_handle(node)
 
     def _is_expected_request(self, request_type):
         expected = self._async_api._expected_request_type
@@ -1079,19 +1075,19 @@ class MegaFolderListener(MegaListener):
     def _is_target_transfer(self, transfer):
         if self._async_api._download_is_folder:
             try:
-                return transfer.isFolderTransfer()
+                return bool(_call_attr(transfer, "isFolderTransfer", False))
             except Exception:
                 return False
         target_match = False
         if self._target_handle is not None:
             try:
-                if transfer.getNodeHandle() == self._target_handle:
+                if _call_attr(transfer, "getNodeHandle", None) == self._target_handle:
                     target_match = True
             except Exception:
                 pass
         if not target_match:
             try:
-                if transfer.getFileName() == self._name:
+                if _call_attr(transfer, "getFileName", "") == self._name:
                     target_match = True
             except Exception:
                 pass
@@ -1202,13 +1198,13 @@ class MegaFolderListener(MegaListener):
                 return
             if self.is_cancelled:
                 token = self._cancel_token
-                if token is not None and not token.isCancelled():
+                if token is not None and not _call_attr(token, "isCancelled", False):
                     try:
-                        token.cancel()
+                        _call_attr(token, "cancel")
                     except Exception:
                         pass
                 try:
-                    api.cancelTransfer(transfer, None)
+                    _call_attr(api, "cancelTransfer", None, transfer, None)
                 except Exception:
                     pass
                 return
@@ -1272,8 +1268,8 @@ class MegaFolderListener(MegaListener):
                 return
             if not self._is_target_transfer(transfer):
                 return
-            err_code = error.getErrorCode() if error else 0
-            err_str = error.toString() if error else "unknown"
+            err_code = _call_attr(error, "getErrorCode", 0) if error else 0
+            err_str = _call_attr(error, "toString", "unknown") if error else "unknown"
             LOGGER.warning("MegaFolder: onTransferTemporaryError err=%s", err_code)
             if err_code == MegaError.API_EOVERQUOTA:
                 msg = f"TransferTempError: Over quota: {err_str}"
@@ -1295,15 +1291,16 @@ class MegaFolderListener(MegaListener):
             return
         self.is_cancelled = True
         token = self._cancel_token
-        if token is not None and not token.isCancelled():
+        if token is not None and not _call_attr(token, "isCancelled", False):
             try:
-                token.cancel()
+                _call_attr(token, "cancel")
             except Exception as e:
                 LOGGER.error(f"MegaFolder cancel-token cancel failed: {e}")
         current = getattr(self, "_current_transfer", None)
         if current is not None:
             try:
-                self._async_api._download_api().cancelTransfer(current, None)
+                dl_api = self._async_api._download_api()
+                _call_attr(dl_api, "cancelTransfer", None, current, None)
             except Exception as e:
                 LOGGER.error(f"MegaFolder cancel-transfer failed: {e}")
         self._set_request_event()

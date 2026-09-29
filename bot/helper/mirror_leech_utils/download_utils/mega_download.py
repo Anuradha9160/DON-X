@@ -106,7 +106,7 @@ class MegaPyStatusHelper:
         self.listener = listener
         self._gid = gid
         self.downloaded_bytes = 0
-        self.speed = 0
+        self.speed_val = 0
         self._start_time = 0
         self.engine = EngineStatus().STATUS_MEGA
 
@@ -114,7 +114,7 @@ class MegaPyStatusHelper:
         return self.listener.name
 
     def progress_raw(self):
-        if self.listener.size > 0:
+        if getattr(self.listener, "size", 0) > 0:
             return round((self.downloaded_bytes / self.listener.size) * 100, 2)
         return 0.0
 
@@ -128,19 +128,26 @@ class MegaPyStatusHelper:
         return get_readable_file_size(self.downloaded_bytes)
 
     def eta(self):
-        if not self.speed:
+        if not self.speed_val:
             return "-"
         try:
-            seconds = (self.listener.size - self.downloaded_bytes) / self.speed
+            seconds = (self.listener.size - self.downloaded_bytes) / self.speed_val
             return get_readable_time(seconds)
         except Exception:
             return "-"
 
     def size(self):
-        return get_readable_file_size(self.listener.size) if self.listener.size > 0 else "Unknown"
+        return (
+            get_readable_file_size(self.listener.size)
+            if getattr(self.listener, "size", 0) > 0
+            else "Unknown"
+        )
+
+    def speed(self):
+        return f"{get_readable_file_size(self.speed_val)}/s"
 
     def speed_str(self):
-        return f"{get_readable_file_size(self.speed)}/s"
+        return self.speed()
 
     def gid(self):
         return self._gid
@@ -153,10 +160,372 @@ class MegaPyStatusHelper:
         await self.listener.on_download_error("download stopped by user!")
 
 
+def _download_file_chunks(
+    file_url,
+    file_size,
+    dest_path,
+    k_str,
+    iv,
+    meta_mac,
+    status_helper=None,
+    listener=None,
+    max_retries=5,
+):
+    import requests
+    from time import time
+    from Cryptodome.Cipher import AES
+    from Cryptodome.Util import Counter
+    import mega.crypto as c
+
+    downloaded = 0
+    start_time = time()
+    last_update_time = time()
+    last_bytes = 0
+
+    if os.path.exists(dest_path):
+        try:
+            downloaded = os.path.getsize(dest_path)
+            if downloaded > file_size:
+                downloaded = 0
+                os.remove(dest_path)
+            else:
+                downloaded = (downloaded // 16) * 16
+                with open(dest_path, "a+b") as f:
+                    f.truncate(downloaded)
+        except OSError:
+            downloaded = 0
+
+    initial_ctr = ((iv[0] << 32) + iv[1]) << 64
+    for attempt in range(max_retries):
+        if listener and getattr(listener, "is_cancelled", False):
+            return False
+
+        headers = {}
+        if downloaded > 0:
+            headers["Range"] = f"bytes={downloaded}-"
+
+        try:
+            res = requests.get(file_url, headers=headers, stream=True, timeout=30)
+            res.raise_for_status()
+
+            ctr_val = initial_ctr + (downloaded // 16)
+            counter = Counter.new(128, initial_value=ctr_val)
+            aes = AES.new(k_str, AES.MODE_CTR, counter=counter)
+
+            mode = "r+b" if downloaded > 0 and os.path.exists(dest_path) else "wb"
+            with open(dest_path, mode) as f:
+                if downloaded > 0:
+                    f.seek(downloaded)
+
+                for chunk in res.iter_content(chunk_size=512 * 1024):
+                    if listener and getattr(listener, "is_cancelled", False):
+                        return False
+                    if not chunk:
+                        continue
+
+                    dec_chunk = aes.decrypt(chunk)
+                    f.write(dec_chunk)
+                    chunk_len = len(chunk)
+                    downloaded += chunk_len
+
+                    if status_helper:
+                        status_helper.downloaded_bytes += chunk_len
+                        now = time()
+                        elapsed = now - last_update_time
+                        if elapsed >= 0.5:
+                            speed = (status_helper.downloaded_bytes - last_bytes) / elapsed
+                            status_helper.speed_val = max(0, int(speed))
+                            last_update_time = now
+                            last_bytes = status_helper.downloaded_bytes
+
+            if downloaded >= file_size:
+                return True
+
+        except Exception as e:
+            LOGGER.warning(f"MegaPy download chunk attempt {attempt + 1} failed: {e}")
+            if listener and getattr(listener, "is_cancelled", False):
+                return False
+            if attempt < max_retries - 1:
+                if os.path.exists(dest_path):
+                    try:
+                        downloaded = os.path.getsize(dest_path)
+                    except OSError:
+                        pass
+                continue
+            raise e
+
+    return downloaded >= file_size
+
+
+def _mega_py_fetch_info(listener, email, password):
+    _patch_mega_py()
+    import mega.crypto as c
+    from mega import Mega
+    import re
+
+    mega = Mega()
+    m = None
+    if email and password:
+        try:
+            m = mega.login(email, password)
+        except Exception as e:
+            LOGGER.warning(f"Mega login failed, falling back to anonymous: {e}")
+            m = None
+    if m is None:
+        m = mega.login()
+
+    url = listener.link
+    is_folder = is_mega_folder_link(url)
+
+    if not is_folder:
+        # File link
+        parsed = m._parse_url(url).split("!")
+        file_id = parsed[0]
+        file_key_str = parsed[1]
+
+        file_key = c.base64_to_a32(file_key_str)
+        file_data = m._api_request({"a": "g", "g": 1, "p": file_id})
+
+        if "g" not in file_data:
+            raise RuntimeError("MEGA file not accessible or link expired.")
+
+        file_url = file_data["g"]
+        file_size = file_data["s"]
+        attribs = c.base64_url_decode(file_data["at"])
+
+        k = (
+            file_key[0] ^ file_key[4],
+            file_key[1] ^ file_key[5],
+            file_key[2] ^ file_key[6],
+            file_key[3] ^ file_key[7],
+        )
+        iv = file_key[4:6] + (0, 0)
+        meta_mac = file_key[6:8]
+
+        attribs = c.decrypt_attr(attribs, k)
+        file_name = attribs.get("n", f"file_{file_id}") if isinstance(attribs, dict) else f"file_{file_id}"
+
+        listener.name = file_name
+        listener.size = file_size
+
+        return {
+            "is_folder": False,
+            "m": m,
+            "file_url": file_url,
+            "file_size": file_size,
+            "file_name": file_name,
+            "k": k,
+            "iv": iv,
+            "meta_mac": meta_mac,
+        }
+
+    else:
+        # Folder link
+        subfolder_handle = get_mega_subfolder_handle(url)
+        folder_id = ""
+        folder_key_str = ""
+
+        m_f = re.search(r"mega\.(?:co\.)?nz/folder/([^#]+)#(.+)", url)
+        if m_f:
+            folder_id = m_f.group(1)
+            folder_key_str = m_f.group(2)
+        else:
+            m_f2 = re.search(r"#F!([^!]+)!(.+)", url)
+            if m_f2:
+                folder_id = m_f2.group(1)
+                folder_key_str = m_f2.group(2)
+
+        if not folder_id or not folder_key_str:
+            raise RuntimeError(f"Could not parse MEGA folder link: {url}")
+
+        if "/" in folder_key_str:
+            folder_key_str = folder_key_str.split("/")[0]
+
+        k_folder = c.base64_to_a32(folder_key_str)
+        nodes_res = m._api_request({"a": "f", "c": 1, "r": 1, "ca": 1}, params={"n": folder_id})
+
+        if not isinstance(nodes_res, dict) or "f" not in nodes_res:
+            raise RuntimeError("Failed to fetch node list for MEGA folder.")
+
+        nodes = nodes_res["f"]
+        nodes_dict = {}
+        children_map = {}
+
+        for n in nodes:
+            h = n.get("h")
+            p = n.get("p")
+            t = n.get("t", 0)
+            s = n.get("s", 0)
+            k_raw = n.get("k", "")
+
+            if ":" in k_raw:
+                k_enc = k_raw.split(":")[1]
+            else:
+                k_enc = k_raw
+
+            if not k_enc:
+                continue
+
+            k_a32 = c.str_to_a32(c.base64_url_decode(k_enc))
+            k_dec = c.decrypt_key(k_a32, k_folder)
+
+            if t == 0:
+                # File node
+                k = (
+                    k_dec[0] ^ k_dec[4],
+                    k_dec[1] ^ k_dec[5],
+                    k_dec[2] ^ k_dec[6],
+                    k_dec[3] ^ k_dec[7],
+                )
+                iv = k_dec[4:6] + (0, 0)
+                meta_mac = k_dec[6:8]
+                at = c.base64_url_decode(n.get("at", ""))
+                attribs = c.decrypt_attr(at, k)
+            else:
+                # Folder node
+                k = k_dec
+                iv = None
+                meta_mac = None
+                at = c.base64_url_decode(n.get("at", ""))
+                attribs = c.decrypt_attr(at, k)
+
+            name = attribs.get("n", f"node_{h}") if isinstance(attribs, dict) else f"node_{h}"
+
+            node_obj = {
+                "h": h,
+                "p": p,
+                "t": t,
+                "s": s,
+                "name": name,
+                "k": k,
+                "iv": iv,
+                "meta_mac": meta_mac,
+            }
+            nodes_dict[h] = node_obj
+
+            if p not in children_map:
+                children_map[p] = []
+            children_map[p].append(h)
+
+        target_node = None
+        if subfolder_handle and subfolder_handle in nodes_dict:
+            target_node = nodes_dict[subfolder_handle]
+        else:
+            for h, no in nodes_dict.items():
+                if no["t"] == 2 or no["p"] not in nodes_dict:
+                    target_node = no
+                    break
+
+        if not target_node:
+            raise RuntimeError("Root node or subfolder node not found in MEGA folder.")
+
+        root_name = target_node["name"]
+        listener.name = root_name
+
+        file_list = []
+
+        def collect_files(curr_h, rel_path):
+            curr = nodes_dict.get(curr_h)
+            if not curr:
+                return
+            if curr["t"] == 0:
+                file_list.append((curr, rel_path))
+            elif curr["t"] in (1, 2):
+                dir_path = os.path.join(rel_path, curr["name"]) if curr_h != target_node["h"] else rel_path
+                for ch_h in children_map.get(curr_h, []):
+                    collect_files(ch_h, dir_path)
+
+        collect_files(target_node["h"], "")
+
+        total_folder_size = sum(f_obj["s"] for f_obj, _ in file_list)
+        listener.size = total_folder_size
+
+        return {
+            "is_folder": True,
+            "m": m,
+            "root_name": root_name,
+            "file_list": file_list,
+            "total_folder_size": total_folder_size,
+        }
+
+
+def _mega_py_start_download(listener, path, info, status_helper):
+    import mega.crypto as c
+
+    m = info["m"]
+    if not info["is_folder"]:
+        dest_file_path = os.path.join(path, info["file_name"])
+        k_str = c.a32_to_str(info["k"])
+
+        res = _download_file_chunks(
+            info["file_url"],
+            info["file_size"],
+            dest_file_path,
+            k_str,
+            info["iv"],
+            info["meta_mac"],
+            status_helper=status_helper,
+            listener=listener,
+        )
+        return res
+    else:
+        root_name = info["root_name"]
+        file_list = info["file_list"]
+
+        folder_dest_dir = os.path.join(path, root_name)
+        os.makedirs(folder_dest_dir, exist_ok=True)
+
+        for file_obj, rel_subpath in file_list:
+            if listener and getattr(listener, "is_cancelled", False):
+                return False
+
+            file_dest_folder = os.path.join(folder_dest_dir, rel_subpath) if rel_subpath else folder_dest_dir
+            os.makedirs(file_dest_folder, exist_ok=True)
+
+            file_dest_path = os.path.join(file_dest_folder, file_obj["name"])
+
+            file_data = m._api_request({"a": "g", "g": 1, "n": file_obj["h"]})
+            if "g" not in file_data:
+                LOGGER.warning(f"Could not get download URL for file {file_obj['name']}")
+                continue
+
+            file_url = file_data["g"]
+            k_str = c.a32_to_str(file_obj["k"])
+
+            ok = _download_file_chunks(
+                file_url,
+                file_obj["s"],
+                file_dest_path,
+                k_str,
+                file_obj["iv"],
+                file_obj["meta_mac"],
+                status_helper=status_helper,
+                listener=listener,
+            )
+            if not ok and getattr(listener, "is_cancelled", False):
+                return False
+
+        return True
+
+
 async def _download_mega_py(listener, path, email, password):
     from ...ext_utils.bot_utils import sync_to_async
+
     await makedirs(path, exist_ok=True)
     gid = token_hex(5)
+
+    try:
+        # Phase 1: Fetch metadata only (name and size) before duplicate check / limits / queueing
+        info = await sync_to_async(
+            _mega_py_fetch_info,
+            listener,
+            email,
+            password,
+        )
+    except Exception as e:
+        LOGGER.error(f"Mega.py metadata fetch failed for link {listener.link}: {e}", exc_info=True)
+        await listener.on_download_error(f"Mega download failed: {e}")
+        return
 
     msg, button = await stop_duplicate_check(listener)
     if msg:
@@ -193,12 +562,19 @@ async def _download_mega_py(listener, path, email, password):
         return
 
     try:
-        res = await sync_to_async(_mega_py_download_sync, listener, path, email, password, status_helper)
+        # Phase 2: Perform file/folder payload download while task is registered in task_dict
+        res = await sync_to_async(
+            _mega_py_start_download,
+            listener,
+            path,
+            info,
+            status_helper,
+        )
         if not res or listener.is_cancelled:
             return
         await listener.on_download_complete()
     except Exception as e:
-        LOGGER.error(f"Mega.py download failed for link {listener.link}: {e}", exc_info=True)
+        LOGGER.error(f"Mega.py download failed: {e}", exc_info=True)
         await listener.on_download_error(f"Mega download failed: {e}")
 
 
@@ -303,12 +679,6 @@ async def add_mega_download(listener, path):
 
     if MegaApi is None:
         try:
-            try:
-                from mega import Mega
-            except (ImportError, SyntaxError, Exception):
-                Mega = None
-            if Mega is None:
-                raise ImportError("MEGA SDK / mega module is not available on this system.")
             await _download_mega_py(listener, path, mega_email, mega_password)
         except Exception as e:
             await listener.on_download_error(f"Mega download failed: {e}")
@@ -318,6 +688,7 @@ async def add_mega_download(listener, path):
 
     async_api = None
     mega_base = ""
+    sdk_failed = False
     try:
         sdk_gid = token_hex(5)
         await makedirs(path, exist_ok=True)
@@ -327,8 +698,16 @@ async def add_mega_download(listener, path):
         mega_dir = os.path.join(mega_base, "main")
         await makedirs(mega_dir, exist_ok=True)
 
-        async_api = AsyncMega()
-        async_api.api = api = MegaApi("", mega_dir, "WZML-X", 4)
+        try:
+            async_api = AsyncMega()
+            async_api.api = api = MegaApi("", mega_dir, "WZML-X", 4)
+        except Exception as e:
+            LOGGER.warning(f"Failed to initialize MegaApi SDK: {e}. Falling back to Python downloader.")
+            sdk_failed = True
+
+        if sdk_failed or async_api is None or async_api.api is None:
+            await _download_mega_py(listener, path, mega_email, mega_password)
+            return
         mega_listener = MegaAppListener(async_api, listener)
         async_api._mega_listener = mega_listener
         api.addListener(mega_listener)
