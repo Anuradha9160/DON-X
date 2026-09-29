@@ -2,6 +2,8 @@ from os import path as ospath
 from asyncio import Event, wait_for
 from ast import literal_eval
 from functools import partial
+from html import escape
+import shutil
 from time import time
 
 from niquests import AsyncSession
@@ -160,7 +162,7 @@ class YtSelection:
                         ba_ext = (
                             "[ext=m4a]" if self._is_m4a and ext == "mp4" else ""
                         )
-                        v_format = f"{format_id}+ba{ba_ext}/b[height=?{height}]"
+                        v_format = f"{format_id}+ba{ba_ext}/b[height=?{height}]/bv*[height<=?{height}]+ba/b[height<=?{height}]"
                     else:
                         continue
 
@@ -184,10 +186,22 @@ class YtSelection:
 
                     if len(items_dict) == 1:
                         t_key, v_list = next(iter(items_dict.items()))
-                        button_name = f"{b_name} ({get_readable_file_size(v_list[0])})"
+                        button_name = (
+                            f"{b_name} ({get_readable_file_size(v_list[0])})"
+                            if v_list[0] > 0
+                            else f"{b_name}"
+                        )
                         buttons.data_button(button_name, f"ytq sub {b_key} {t_key}")
                     else:
                         buttons.data_button(b_name, f"ytq dict {b_key}")
+
+            if not self.formats:
+                for i in ["144", "240", "360", "480", "720", "1080", "1440", "2160"]:
+                    video_format = f"bv*[height<=?{i}]+ba/b[height<=?{i}]"
+                    b_data = f"{i}|mp4"
+                    self.formats[b_data] = video_format
+                    buttons.data_button(f"{i}p", f"ytq {b_data}")
+
             buttons.data_button("MP3", "ytq mp3")
             buttons.data_button("Audio Formats", "ytq audio")
             buttons.data_button("Best Video", "ytq bv*+ba/b")
@@ -264,12 +278,56 @@ class YtSelection:
         await edit_message(self._reply_to, msg, subbuttons)
 
 
+def find_node_executable():
+    return (
+        shutil.which("node")
+        or shutil.which("node", path="/usr/local/bin:/usr/bin:/bin")
+    )
+
+
 def extract_info(link, options):
-    with YoutubeDL(options) as ydl:
-        result = ydl.extract_info(link, download=False)
-        if result is None:
-            raise ValueError("Info result is None")
-        return result
+    opts = options.copy()
+    node_path = find_node_executable()
+    if node_path and "js_runtimes" not in opts:
+        opts["js_runtimes"] = {"node": {"path": node_path}}
+    if "extractor_args" not in opts:
+        opts["extractor_args"] = {
+            "youtube": {
+                "player_client": ["default", "mweb", "ios", "web", "tv"],
+            }
+        }
+
+    client_fallbacks = [
+        ["default", "mweb", "ios", "web", "tv"],
+        ["ios", "mweb", "web"],
+        ["web", "mweb"],
+        ["android", "ios"],
+        ["tv", "web"],
+    ]
+
+    last_exc = None
+    for clients in client_fallbacks:
+        try:
+            curr_opts = opts.copy()
+            ext_args = dict(curr_opts.get("extractor_args", {}))
+            yt_args = dict(ext_args.get("youtube", {}))
+            yt_args["player_client"] = clients
+            ext_args["youtube"] = yt_args
+            curr_opts["extractor_args"] = ext_args
+
+            with YoutubeDL(curr_opts) as ydl:
+                result = ydl.extract_info(link, download=False)
+                if result is not None:
+                    return result
+        except Exception as e:
+            last_exc = e
+            err_str = str(e).lower()
+            if any(term in err_str for term in ["private", "copyright", "removed", "not found"]):
+                raise e
+
+    if last_exc:
+        raise last_exc
+    raise ValueError("Info result is None")
 
 
 async def _mdisk(link, name):
@@ -527,6 +585,7 @@ class YtDlp(TaskListener):
         else:
             options.pop("cookiefile", None)
 
+        cmd_has_opt = bool(args["-opt"])
         if opt:
             for key, value in opt.items():
                 if key in ["postprocessors", "download_ranges"]:
@@ -537,7 +596,7 @@ class YtDlp(TaskListener):
                     else:
                         options.pop("cookiefile", None)
                     continue
-                if key == "format" and not self.select:
+                if key == "format" and not self.select and cmd_has_opt:
                     if value.startswith("ba/b-"):
                         qual = value
                         continue
@@ -550,8 +609,11 @@ class YtDlp(TaskListener):
         try:
             result = await sync_to_async(extract_info, self.link, options)
         except Exception as e:
-            msg = str(e).replace("<", " ").replace(">", " ")
-            await send_message(self.message, f"{self.tag} {msg}")
+            err_msg = escape(str(e))
+            await send_message(
+                self.message,
+                f"{self.tag} <b>YouTube Extraction Error:</b>\n{err_msg}",
+            )
             await self.remove_from_same_dir()
             await delete_links(self.message)
             return

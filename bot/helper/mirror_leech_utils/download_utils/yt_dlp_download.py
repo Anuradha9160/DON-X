@@ -1,6 +1,7 @@
 from logging import getLogger
 from os import path as ospath, listdir
 from re import search as re_search
+import shutil
 from contextlib import suppress
 from secrets import token_hex
 from yt_dlp import YoutubeDL, DownloadError
@@ -65,6 +66,13 @@ class MyLogger:
             LOGGER.error(msg)
 
 
+def find_node_executable():
+    return (
+        shutil.which("node")
+        or shutil.which("node", path="/usr/local/bin:/usr/bin:/bin")
+    )
+
+
 class YoutubeDLHelper:
     def __init__(self, listener):
         self._last_downloaded = 0
@@ -78,6 +86,12 @@ class YoutubeDLHelper:
         self.is_playlist = False
         self.keep_thumb = False
         self.playlist_count = 0
+
+        node_path = find_node_executable()
+        ffmpeg_bin = f"/bin/{BinConfig.FFMPEG_NAME}"
+        if not ospath.exists(ffmpeg_bin):
+            ffmpeg_bin = shutil.which(BinConfig.FFMPEG_NAME) or shutil.which("ffmpeg") or ffmpeg_bin
+
         self.opts = {
             "progress_hooks": [self._on_download_progress],
             "logger": MyLogger(self, self._listener),
@@ -89,7 +103,7 @@ class YoutubeDLHelper:
             "overwrites": True,
             "writethumbnail": True,
             "trim_file_name": 220,
-            "ffmpeg_location": f"/bin/{BinConfig.FFMPEG_NAME}",
+            "ffmpeg_location": ffmpeg_bin,
             "fragment_retries": 10,
             "retries": 10,
             "retry_sleep_functions": {
@@ -98,7 +112,14 @@ class YoutubeDLHelper:
                 "file_access": lambda n: 3,
                 "extractor": lambda n: 3,
             },
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["default", "mweb", "ios", "web", "tv"],
+                }
+            },
         }
+        if node_path:
+            self.opts["js_runtimes"] = {"node": {"path": node_path}}
         cookie_to_use, err = get_cookie_file(self._listener.user_dict, self._listener.user_id)
         if cookie_to_use and ospath.exists(cookie_to_use):
             self.opts["cookiefile"] = cookie_to_use
@@ -170,57 +191,109 @@ class YoutubeDLHelper:
         if self.is_playlist:
             opts["extract_flat"] = "in_playlist"
             opts["ignoreerrors"] = True
-        with YoutubeDL(opts) as ydl:
+
+        client_fallbacks = [
+            ["default", "mweb", "ios", "web", "tv"],
+            ["ios", "mweb", "web"],
+            ["web", "mweb"],
+            ["android", "ios"],
+            ["tv", "web"],
+        ]
+
+        result = None
+        last_exc = None
+        for clients in client_fallbacks:
             try:
-                result = ydl.extract_info(self._listener.link, download=False)
-                if result is None:
-                    raise ValueError("Info result is None")
+                curr_opts = opts.copy()
+                ext_args = dict(curr_opts.get("extractor_args", {}))
+                yt_args = dict(ext_args.get("youtube", {}))
+                yt_args["player_client"] = clients
+                ext_args["youtube"] = yt_args
+                curr_opts["extractor_args"] = ext_args
+
+                with YoutubeDL(curr_opts) as ydl:
+                    result = ydl.extract_info(self._listener.link, download=False)
+                    if result is not None:
+                        break
             except Exception as e:
-                return self._on_download_error(str(e))
-            if self.is_playlist:
-                entries = list(result.get("entries", [])) if "entries" in result else []
-                self.playlist_count = result.get("playlist_count") or len([e for e in entries if e])
-            if "entries" in result:
-                entries = [e for e in result["entries"] if e]
-                for entry in entries:
-                    if entry.get("ext") == "unknown_video":
-                        entry["ext"] = "mp4"
-                    if "filesize_approx" in entry:
-                        self._listener.size += entry.get("filesize_approx", 0) or 0
-                    elif "filesize" in entry:
-                        self._listener.size += entry.get("filesize", 0) or 0
+                last_exc = e
+
+        if result is None:
+            err_msg = str(last_exc) if last_exc else "Info result is None"
+            return self._on_download_error(err_msg)
+
+        if self.is_playlist:
+            entries = list(result.get("entries", [])) if "entries" in result else []
+            self.playlist_count = result.get("playlist_count") or len([e for e in entries if e])
+        if "entries" in result:
+            entries = [e for e in result["entries"] if e]
+            for entry in entries:
+                if entry.get("ext") == "unknown_video":
+                    entry["ext"] = "mp4"
+                if "filesize_approx" in entry:
+                    self._listener.size += entry.get("filesize_approx", 0) or 0
+                elif "filesize" in entry:
+                    self._listener.size += entry.get("filesize", 0) or 0
+            if not self._listener.name:
+                p_title = result.get("title") or result.get("playlist_title")
+                if p_title:
+                    self._listener.name = p_title
+                elif entries:
+                    outtmpl_ = "%(series,playlist_title,channel)s%(season_number& |)s%(season_number&S|)s%(season_number|)02d.%(ext)s"
+                    fname = ydl.prepare_filename(entries[0], outtmpl=outtmpl_)
+                    if fname:
+                        self._listener.name = ospath.splitext(fname)[0]
                 if not self._listener.name:
-                    p_title = result.get("title") or result.get("playlist_title")
-                    if p_title:
-                        self._listener.name = p_title
-                    elif entries:
-                        outtmpl_ = "%(series,playlist_title,channel)s%(season_number& |)s%(season_number&S|)s%(season_number|)02d.%(ext)s"
-                        fname = ydl.prepare_filename(entries[0], outtmpl=outtmpl_)
-                        if fname:
-                            self._listener.name = ospath.splitext(fname)[0]
-                    if not self._listener.name:
-                        self._listener.name = "Playlist"
-            else:
-                if result.get("ext") == "unknown_video":
-                    result["ext"] = "mp4"
-                outtmpl_ = "%(title,fulltitle,alt_title)s%(season_number& |)s%(season_number&S|)s%(season_number|)02d%(episode_number&E|)s%(episode_number|)02d%(height& |)s%(height|)s%(height&p|)s%(fps|)s%(fps&fps|)s%(tbr& |)s%(tbr|)d.%(ext)s"
-                realName = ydl.prepare_filename(result, outtmpl=outtmpl_)
-                ext = ospath.splitext(realName)[-1]
-                self._listener.name = (
-                    f"{self._listener.name}{ext}" if self._listener.name else realName
-                )
-                if not self._ext:
-                    self._ext = ext
+                    self._listener.name = "Playlist"
+        else:
+            if result.get("ext") == "unknown_video":
+                result["ext"] = "mp4"
+            outtmpl_ = "%(title,fulltitle,alt_title)s%(season_number& |)s%(season_number&S|)s%(season_number|)02d%(episode_number&E|)s%(episode_number|)02d%(height& |)s%(height|)s%(height&p|)s%(fps|)s%(fps&fps|)s%(tbr& |)s%(tbr|)d.%(ext)s"
+            realName = ydl.prepare_filename(result, outtmpl=outtmpl_)
+            ext = ospath.splitext(realName)[-1]
+            self._listener.name = (
+                f"{self._listener.name}{ext}" if self._listener.name else realName
+            )
+            if not self._ext:
+                self._ext = ext
 
     def _download(self, path):
         with suppress(Exception):
-            with YoutubeDL(self.opts) as ydl:
-                try:
-                    ydl.download([self._listener.link])
-                except DownloadError as e:
-                    if not self._listener.is_cancelled:
-                        self._on_download_error(str(e))
+            client_fallbacks = [
+                ["default", "mweb", "ios", "web", "tv"],
+                ["ios", "mweb", "web"],
+                ["web", "mweb"],
+                ["android", "ios"],
+                ["tv", "web"],
+            ]
+            download_success = False
+            last_err = None
+
+            for clients in client_fallbacks:
+                if self._listener.is_cancelled:
                     return
+                curr_opts = self.opts.copy()
+                ext_args = dict(curr_opts.get("extractor_args", {}))
+                yt_args = dict(ext_args.get("youtube", {}))
+                yt_args["player_client"] = clients
+                ext_args["youtube"] = yt_args
+                curr_opts["extractor_args"] = ext_args
+
+                try:
+                    with YoutubeDL(curr_opts) as ydl:
+                        ydl.download([self._listener.link])
+                    download_success = True
+                    break
+                except DownloadError as e:
+                    last_err = e
+                    if self._listener.is_cancelled:
+                        return
+
+            if not download_success:
+                if not self._listener.is_cancelled:
+                    self._on_download_error(str(last_err))
+                return
+
             if self.is_playlist and (
                 not ospath.exists(path) or len(listdir(path)) == 0
             ):
