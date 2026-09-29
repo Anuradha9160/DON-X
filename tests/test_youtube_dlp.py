@@ -122,9 +122,9 @@ async def test_yt_selection_formats_dynamic():
                 for item in fmt["items"].values():
                     all_vformats.append(item[1])
 
-        assert "v360+ba/b" in all_vformats
-        assert "v720+ba/b" in all_vformats
-        assert "audio1" in all_vformats
+        assert any(vf.startswith("v360+ba/b") for vf in all_vformats)
+        assert any(vf.startswith("v720+ba/b") for vf in all_vformats)
+        assert any(vf.startswith("audio1") for vf in all_vformats)
     finally:
         ytdlp.send_message = original_send_message
 

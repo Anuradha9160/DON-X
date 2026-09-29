@@ -193,11 +193,16 @@ class YtSelection:
                 if vcodec != "none" and vcodec is not None and res_h and res_h > 0:
                     b_name = f"{res_h}p{fps_str}-{ext}"
 
+                    if ext == "mp4":
+                        fallback_selector = f"bv*[height<={res_h}][ext=mp4]+ba[ext=m4a]/b[height<={res_h}]/bv*[height<={res_h}]+ba/b[height<={res_h}]"
+                    else:
+                        fallback_selector = f"bv*[height<={res_h}][ext={ext}]+ba/b[height<={res_h}]/bv*[height<={res_h}]+ba/b[height<={res_h}]"
+
                     # If format already includes audio, use it directly; otherwise pair with bestaudio
                     if acodec != "none" and acodec is not None:
-                        v_format = format_id
+                        v_format = f"{format_id}/{fallback_selector}"
                     else:
-                        v_format = f"{format_id}+ba/b"
+                        v_format = f"{format_id}+ba/b/{fallback_selector}"
 
                     group_key = (res_h, fps_val, ext, b_name)
                     video_groups.setdefault(group_key, []).append((tbr_val, tbr_str, size, v_format))
@@ -208,7 +213,7 @@ class YtSelection:
                     abr_val = int(round(abr)) if abr else 0
                     abr_str = f"{abr_val}" if abr_val else format_id
                     b_name = f"{acodec}-{ext}" if acodec else f"audio-{ext}"
-                    v_format = format_id
+                    v_format = f"{format_id}/ba/b"
                     audio_stream_groups.setdefault(b_name, []).append((abr_val, abr_str, size, v_format))
 
             grouped_formats = {}
