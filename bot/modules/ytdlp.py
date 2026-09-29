@@ -111,15 +111,32 @@ class YtSelection:
         buttons = ButtonMaker()
         if "entries" in result:
             self._is_playlist = True
-            for i in ["144", "240", "360", "480", "720", "1080", "1440", "2160"]:
-                video_format = f"bv*[height<=?{i}][ext=mp4]+ba[ext=m4a]/b[height<=?{i}]"
-                b_data = f"{i}|mp4"
+            entries = [e for e in result.get("entries", []) if e]
+            available_heights = set()
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                for fmt in entry.get("formats", []):
+                    h = fmt.get("height")
+                    if h and isinstance(h, int) and h > 0:
+                        available_heights.add(h)
+
+            if available_heights:
+                sorted_heights = sorted(available_heights)
+            else:
+                sorted_heights = [144, 240, 360, 480, 720, 1080, 1440, 2160]
+
+            for h in sorted_heights:
+                video_format = f"bv*[height<={h}][ext=mp4]+ba[ext=m4a]/b[height<={h}]/bv*[height<={h}]+ba/b[height<={h}]"
+                b_data = f"{h}|mp4"
                 self.formats[b_data] = video_format
-                buttons.data_button(f"{i}-mp4", f"ytq {b_data}")
-                video_format = f"bv*[height<=?{i}][ext=webm]+ba/b[height<=?{i}]"
-                b_data = f"{i}|webm"
+                buttons.data_button(f"{h}p-mp4", f"ytq {b_data}")
+
+                video_format = f"bv*[height<={h}][ext=webm]+ba/b[height<={h}]/bv*[height<={h}]+ba/b[height<={h}]"
+                b_data = f"{h}|webm"
                 self.formats[b_data] = video_format
-                buttons.data_button(f"{i}-webm", f"ytq {b_data}")
+                buttons.data_button(f"{h}p-webm", f"ytq {b_data}")
+
             buttons.data_button("MP3", "ytq mp3")
             buttons.data_button("Audio Formats", "ytq audio")
             buttons.data_button("Best Videos", "ytq bv*+ba/b")
@@ -128,76 +145,92 @@ class YtSelection:
             self._main_buttons = buttons.build_menu(3)
             msg = f"Choose Playlist Videos Quality:\nTimeout: {get_readable_time(self._timeout - (time() - self._time))}"
         else:
-            format_dict = result.get("formats")
-            if format_dict is not None:
-                for item in format_dict:
-                    if item.get("video_ext") == "none" and item.get("audio_ext") == "m4a":
-                        self._is_m4a = True
-                        break
+            format_dict = result.get("formats") or []
+            has_audio = any(
+                item.get("acodec") != "none" and item.get("acodec") is not None
+                for item in format_dict
+            )
 
-                grouped_formats = {}
-                for item in format_dict:
-                    format_id = item.get("format_id")
-                    if not format_id:
-                        continue
+            # Group video formats by height & ext/codec
+            video_height_groups = {}
+            audio_stream_groups = {}
 
-                    if (item.get("vcodec") == "none" and item.get("acodec") == "none") or item.get("ext") == "mhtml":
-                        continue
+            for item in format_dict:
+                format_id = str(item.get("format_id", ""))
+                if not format_id:
+                    continue
 
-                    size = item.get("filesize") or item.get("filesize_approx") or 0
+                vcodec = item.get("vcodec")
+                acodec = item.get("acodec")
+                ext = item.get("ext") or "mp4"
 
-                    if item.get("video_ext") == "none" or item.get("vcodec") == "none":
-                        if item.get("acodec") == "none":
-                            continue
-                        acodec = item.get("acodec") or format_id
-                        ext = item.get("ext") or "audio"
-                        b_name = f"{acodec}-{ext}"
+                # Skip storyboards and non-media formats
+                if (vcodec == "none" and acodec == "none") or ext == "mhtml":
+                    continue
+
+                size = item.get("filesize") or item.get("filesize_approx") or 0
+                height = item.get("height")
+                fps = item.get("fps")
+                fps_str = f"{int(round(fps))}" if fps and round(fps) > 30 else ""
+
+                # Video streams (video-only or combined)
+                if vcodec != "none" and vcodec is not None and height and height > 0:
+                    label_res = f"{height}p{fps_str}"
+                    b_name = f"{label_res}-{ext}"
+
+                    # If format already includes audio, use it directly; otherwise pair with bestaudio
+                    if acodec != "none" and acodec is not None:
                         v_format = format_id
-                    elif item.get("height"):
-                        height = item["height"]
-                        ext = item.get("ext") or "mp4"
-                        fps = item.get("fps")
-                        fps_str = f"{int(round(fps))}" if fps and round(fps) > 1 else ""
-                        b_name = f"{height}p{fps_str}-{ext}" if fps_str else f"{height}p-{ext}"
-                        v_format = f"bv*[height<=?{height}][ext={ext}]+ba/bv*[height<=?{height}]+ba/b[height<=?{height}]/best"
                     else:
-                        continue
+                        v_format = f"{format_id}+bestaudio/best" if has_audio else format_id
 
-                    tbr = item.get("tbr") or (
-                        (item.get("vbr") or 0) + (item.get("abr") or 0)
-                    )
+                    tbr = item.get("tbr") or ((item.get("vbr") or 0) + (item.get("abr") or 0))
                     tbr_str = f"{int(round(tbr))}" if tbr else format_id
-                    grouped_formats.setdefault(b_name, []).append((tbr_str, size, v_format))
 
-                for b_idx, (b_name, items_list) in enumerate(grouped_formats.items()):
-                    b_key = str(b_idx)
-                    items_dict = {}
-                    for t_idx, (tbr_str, size, v_format) in enumerate(items_list):
-                        t_key = str(t_idx)
-                        items_dict[t_key] = [size, v_format, tbr_str]
+                    video_height_groups.setdefault(height, {}).setdefault(b_name, []).append(
+                        (tbr_str, size, v_format)
+                    )
 
-                    self.formats[b_key] = {
-                        "name": b_name,
-                        "items": items_dict,
-                    }
+                # Audio streams (audio-only)
+                elif (vcodec == "none" or item.get("video_ext") == "none") and acodec != "none" and acodec is not None:
+                    abr = item.get("abr") or item.get("tbr") or 0
+                    abr_str = f"{int(round(abr))}" if abr else format_id
+                    b_name = f"{acodec}-{ext}" if acodec else f"audio-{ext}"
+                    v_format = format_id
+                    audio_stream_groups.setdefault(b_name, []).append((abr_str, size, v_format))
 
-                    if len(items_dict) == 1:
-                        t_key, v_list = next(iter(items_dict.items()))
-                        button_name = (
-                            f"{b_name} ({get_readable_file_size(v_list[0])})"
-                            if v_list[0] > 0
-                            else f"{b_name}"
-                        )
-                        buttons.data_button(button_name, f"ytq sub {b_key} {t_key}")
-                    else:
-                        buttons.data_button(b_name, f"ytq dict {b_key}")
+            grouped_formats = {}
+            # Sort height groups ascending
+            for h in sorted(video_height_groups.keys()):
+                for b_name, items_list in video_height_groups[h].items():
+                    grouped_formats[b_name] = items_list
 
-            if not self.formats:
-                for i in ["144", "240", "360", "480", "720", "1080", "1440", "2160"]:
-                    video_format = f"bv*[height<=?{i}]+ba/b[height<=?{i}]"
-                    b_data = f"{i}|mp4"
-                    self.formats[b_data] = video_format
-                    buttons.data_button(f"{i}p", f"ytq {b_data}")
+            # Append audio stream groups
+            for b_name, items_list in audio_stream_groups.items():
+                grouped_formats[b_name] = items_list
+
+            for b_idx, (b_name, items_list) in enumerate(grouped_formats.items()):
+                b_key = str(b_idx)
+                items_dict = {}
+                for t_idx, (tbr_str, size, v_format) in enumerate(items_list):
+                    t_key = str(t_idx)
+                    items_dict[t_key] = [size, v_format, tbr_str]
+
+                self.formats[b_key] = {
+                    "name": b_name,
+                    "items": items_dict,
+                }
+
+                if len(items_dict) == 1:
+                    t_key, v_list = next(iter(items_dict.items()))
+                    button_name = (
+                        f"{b_name} ({get_readable_file_size(v_list[0])})"
+                        if v_list[0] > 0
+                        else f"{b_name}"
+                    )
+                    buttons.data_button(button_name, f"ytq sub {b_key} {t_key}")
+                else:
+                    buttons.data_button(b_name, f"ytq dict {b_key}")
 
             buttons.data_button("MP3", "ytq mp3")
             buttons.data_button("Audio Formats", "ytq audio")
