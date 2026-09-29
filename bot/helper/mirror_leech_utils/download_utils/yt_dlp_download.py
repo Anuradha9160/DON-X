@@ -28,7 +28,7 @@ def get_cookie_file(user_dict, user_id=None):
             return "cookies.txt", None
         if ospath.exists("cookies/cookies.txt"):
             return "cookies/cookies.txt", None
-        return None, "Owner cookie file not found / configured!"
+        return None, None
     else:
         usr_cookie = user_dict.get("USER_COOKIE_FILE", "")
         if usr_cookie and ospath.exists(usr_cookie):
@@ -37,7 +37,11 @@ def get_cookie_file(user_dict, user_id=None):
             uid_cookie = f"cookies/{user_id}/cookies.txt"
             if ospath.exists(uid_cookie):
                 return uid_cookie, None
-        return None, "User cookie file not found / configured!"
+        if ospath.exists("cookies.txt"):
+            return "cookies.txt", None
+        if ospath.exists("cookies/cookies.txt"):
+            return "cookies/cookies.txt", None
+        return None, None
 
 
 class MyLogger:

@@ -112,30 +112,44 @@ class YtSelection:
         if "entries" in result:
             self._is_playlist = True
             entries = [e for e in result.get("entries", []) if e]
+            available_combos = set()
             available_heights = set()
             for entry in entries:
                 if not isinstance(entry, dict):
                     continue
                 for fmt in entry.get("formats", []):
                     h = fmt.get("height")
-                    if h and isinstance(h, int) and h > 0:
-                        available_heights.add(h)
+                    w = fmt.get("width")
+                    res_h = min(h, w) if (h and w and h > w) else h
+                    vcodec = fmt.get("vcodec")
+                    ext = fmt.get("ext") or "mp4"
+                    if res_h and isinstance(res_h, int) and res_h > 0:
+                        available_heights.add(res_h)
+                        if vcodec != "none" and vcodec is not None:
+                            available_combos.add((res_h, ext))
 
-            if available_heights:
-                sorted_heights = sorted(available_heights)
+            if available_combos:
+                sorted_combos = sorted(available_combos, key=lambda x: (x[0], x[1]))
+                for h, ext in sorted_combos:
+                    if ext == "mp4":
+                        video_format = f"bv*[height<={h}][ext=mp4]+ba[ext=m4a]/b[height<={h}]/bv*[height<={h}]+ba/b[height<={h}]"
+                    else:
+                        video_format = f"bv*[height<={h}][ext={ext}]+ba/b[height<={h}]/bv*[height<={h}]+ba/b[height<={h}]"
+                    b_data = f"{h}|{ext}"
+                    self.formats[b_data] = video_format
+                    buttons.data_button(f"{h}p-{ext}", f"ytq {b_data}")
+            elif available_heights:
+                for h in sorted(available_heights):
+                    video_format = f"bv*[height<={h}][ext=mp4]+ba[ext=m4a]/b[height<={h}]/bv*[height<={h}]+ba/b[height<={h}]"
+                    b_data = f"{h}|mp4"
+                    self.formats[b_data] = video_format
+                    buttons.data_button(f"{h}p-mp4", f"ytq {b_data}")
             else:
-                sorted_heights = [144, 240, 360, 480, 720, 1080, 1440, 2160]
-
-            for h in sorted_heights:
-                video_format = f"bv*[height<={h}][ext=mp4]+ba[ext=m4a]/b[height<={h}]/bv*[height<={h}]+ba/b[height<={h}]"
-                b_data = f"{h}|mp4"
-                self.formats[b_data] = video_format
-                buttons.data_button(f"{h}p-mp4", f"ytq {b_data}")
-
-                video_format = f"bv*[height<={h}][ext=webm]+ba/b[height<={h}]/bv*[height<={h}]+ba/b[height<={h}]"
-                b_data = f"{h}|webm"
-                self.formats[b_data] = video_format
-                buttons.data_button(f"{h}p-webm", f"ytq {b_data}")
+                for h in [360, 720, 1080]:
+                    video_format = f"bv*[height<={h}][ext=mp4]+ba[ext=m4a]/b[height<={h}]/bv*[height<={h}]+ba/b[height<={h}]"
+                    b_data = f"{h}|mp4"
+                    self.formats[b_data] = video_format
+                    buttons.data_button(f"{h}p-mp4", f"ytq {b_data}")
 
             buttons.data_button("MP3", "ytq mp3")
             buttons.data_button("Audio Formats", "ytq audio")
@@ -152,7 +166,7 @@ class YtSelection:
 
             for item in format_dict:
                 format_id = str(item.get("format_id", ""))
-                if not format_id or format_id.startswith("sb") or item.get("ext") == "mhtml":
+                if not format_id or format_id.startswith("sb") or item.get("ext") in ["mhtml", "none"]:
                     continue
 
                 vcodec = item.get("vcodec")
@@ -164,6 +178,9 @@ class YtSelection:
 
                 size = item.get("filesize") or item.get("filesize_approx") or 0
                 height = item.get("height")
+                width = item.get("width")
+                res_h = min(height, width) if (height and width and height > width) else height
+
                 fps = item.get("fps")
                 fps_val = int(round(fps)) if fps and round(fps) > 0 else 0
                 fps_str = f"{fps_val}" if fps_val > 0 else ""
@@ -173,8 +190,8 @@ class YtSelection:
                 tbr_str = f"{tbr_val}" if tbr_val else format_id
 
                 # Video streams (video-only or combined)
-                if vcodec != "none" and vcodec is not None and height and height > 0:
-                    b_name = f"{height}p{fps_str}-{ext}"
+                if vcodec != "none" and vcodec is not None and res_h and res_h > 0:
+                    b_name = f"{res_h}p{fps_str}-{ext}"
 
                     # If format already includes audio, use it directly; otherwise pair with bestaudio
                     if acodec != "none" and acodec is not None:
@@ -182,7 +199,7 @@ class YtSelection:
                     else:
                         v_format = f"{format_id}+ba/b"
 
-                    group_key = (height, fps_val, ext, b_name)
+                    group_key = (res_h, fps_val, ext, b_name)
                     video_groups.setdefault(group_key, []).append((tbr_val, tbr_str, size, v_format))
 
                 # Audio streams (audio-only)
