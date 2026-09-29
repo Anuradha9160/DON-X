@@ -114,7 +114,7 @@ class YoutubeDLHelper:
             },
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["default", "mweb", "ios", "web", "tv"],
+                    "player_client": ["default", "web_embedded", "mweb", "ios", "web"],
                 }
             },
         }
@@ -193,11 +193,11 @@ class YoutubeDLHelper:
             opts["ignoreerrors"] = True
 
         client_fallbacks = [
-            ["default", "mweb", "ios", "web", "tv"],
+            ["default", "web_embedded", "mweb", "ios", "web"],
+            ["web_embedded", "mweb", "ios"],
             ["ios", "mweb", "web"],
-            ["web", "mweb"],
-            ["android", "ios"],
-            ["tv", "web"],
+            ["web", "default"],
+            ["mweb", "ios"],
         ]
 
         result = None
@@ -260,11 +260,11 @@ class YoutubeDLHelper:
     def _download(self, path):
         with suppress(Exception):
             client_fallbacks = [
-                ["default", "mweb", "ios", "web", "tv"],
+                ["default", "web_embedded", "mweb", "ios", "web"],
+                ["web_embedded", "mweb", "ios"],
                 ["ios", "mweb", "web"],
-                ["web", "mweb"],
-                ["android", "ios"],
-                ["tv", "web"],
+                ["web", "default"],
+                ["mweb", "ios"],
             ]
             download_success = False
             last_err = None

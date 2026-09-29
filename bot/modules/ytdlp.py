@@ -293,16 +293,16 @@ def extract_info(link, options):
     if "extractor_args" not in opts:
         opts["extractor_args"] = {
             "youtube": {
-                "player_client": ["default", "mweb", "ios", "web", "tv"],
+                "player_client": ["default", "web_embedded", "mweb", "ios", "web"],
             }
         }
 
     client_fallbacks = [
-        ["default", "mweb", "ios", "web", "tv"],
+        ["default", "web_embedded", "mweb", "ios", "web"],
+        ["web_embedded", "mweb", "ios"],
         ["ios", "mweb", "web"],
-        ["web", "mweb"],
-        ["android", "ios"],
-        ["tv", "web"],
+        ["web", "default"],
+        ["mweb", "ios"],
     ]
 
     last_exc = None
