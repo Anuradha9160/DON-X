@@ -46,6 +46,14 @@ def test_youtube_extract_info_real_video():
     assert "title" in info
 
 
+def test_youtube_extract_info_shorts():
+    url = "https://youtube.com/shorts/g53iFgFNVJI"
+    info = extract_info(url, {"usenetrc": True})
+    assert info is not None
+    assert "id" in info
+    assert info["id"] == "g53iFgFNVJI"
+
+
 @pytest.mark.asyncio
 async def test_yt_selection_formats_dynamic():
     mock_listener = MagicMock()
@@ -107,15 +115,15 @@ async def test_yt_selection_formats_dynamic():
         assert not any("1080p" in name for name in format_names)
         assert not any("1440p" in name for name in format_names)
 
-        # Ensure actual format IDs are used (e.g., v360+bestaudio/best)
+        # Ensure actual format IDs are used (e.g., v360+ba/b)
         all_vformats = []
         for fmt in selection.formats.values():
             if isinstance(fmt, dict) and "items" in fmt:
                 for item in fmt["items"].values():
                     all_vformats.append(item[1])
 
-        assert "v360+bestaudio/best" in all_vformats
-        assert "v720+bestaudio/best" in all_vformats
+        assert "v360+ba/b" in all_vformats
+        assert "v720+ba/b" in all_vformats
         assert "audio1" in all_vformats
     finally:
         ytdlp.send_message = original_send_message

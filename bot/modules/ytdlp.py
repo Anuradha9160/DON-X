@@ -146,64 +146,58 @@ class YtSelection:
             msg = f"Choose Playlist Videos Quality:\nTimeout: {get_readable_time(self._timeout - (time() - self._time))}"
         else:
             format_dict = result.get("formats") or []
-            has_audio = any(
-                item.get("acodec") != "none" and item.get("acodec") is not None
-                for item in format_dict
-            )
 
-            # Group video formats by height & ext/codec
-            video_height_groups = {}
+            video_groups = {}
             audio_stream_groups = {}
 
             for item in format_dict:
                 format_id = str(item.get("format_id", ""))
-                if not format_id:
+                if not format_id or format_id.startswith("sb") or item.get("ext") == "mhtml":
                     continue
 
                 vcodec = item.get("vcodec")
                 acodec = item.get("acodec")
                 ext = item.get("ext") or "mp4"
 
-                # Skip storyboards and non-media formats
-                if (vcodec == "none" and acodec == "none") or ext == "mhtml":
+                if (vcodec == "none" or vcodec is None) and (acodec == "none" or acodec is None):
                     continue
 
                 size = item.get("filesize") or item.get("filesize_approx") or 0
                 height = item.get("height")
                 fps = item.get("fps")
-                fps_str = f"{int(round(fps))}" if fps and round(fps) > 30 else ""
+                fps_val = int(round(fps)) if fps and round(fps) > 0 else 0
+                fps_str = f"{fps_val}" if fps_val > 0 else ""
+
+                tbr = item.get("tbr") or ((item.get("vbr") or 0) + (item.get("abr") or 0))
+                tbr_val = int(round(tbr)) if tbr else 0
+                tbr_str = f"{tbr_val}" if tbr_val else format_id
 
                 # Video streams (video-only or combined)
                 if vcodec != "none" and vcodec is not None and height and height > 0:
-                    label_res = f"{height}p{fps_str}"
-                    b_name = f"{label_res}-{ext}"
+                    b_name = f"{height}p{fps_str}-{ext}"
 
                     # If format already includes audio, use it directly; otherwise pair with bestaudio
                     if acodec != "none" and acodec is not None:
                         v_format = format_id
                     else:
-                        v_format = f"{format_id}+bestaudio/best" if has_audio else format_id
+                        v_format = f"{format_id}+ba/b"
 
-                    tbr = item.get("tbr") or ((item.get("vbr") or 0) + (item.get("abr") or 0))
-                    tbr_str = f"{int(round(tbr))}" if tbr else format_id
-
-                    video_height_groups.setdefault(height, {}).setdefault(b_name, []).append(
-                        (tbr_str, size, v_format)
-                    )
+                    group_key = (height, fps_val, ext, b_name)
+                    video_groups.setdefault(group_key, []).append((tbr_val, tbr_str, size, v_format))
 
                 # Audio streams (audio-only)
                 elif (vcodec == "none" or item.get("video_ext") == "none") and acodec != "none" and acodec is not None:
                     abr = item.get("abr") or item.get("tbr") or 0
-                    abr_str = f"{int(round(abr))}" if abr else format_id
+                    abr_val = int(round(abr)) if abr else 0
+                    abr_str = f"{abr_val}" if abr_val else format_id
                     b_name = f"{acodec}-{ext}" if acodec else f"audio-{ext}"
                     v_format = format_id
-                    audio_stream_groups.setdefault(b_name, []).append((abr_str, size, v_format))
+                    audio_stream_groups.setdefault(b_name, []).append((abr_val, abr_str, size, v_format))
 
             grouped_formats = {}
-            # Sort height groups ascending
-            for h in sorted(video_height_groups.keys()):
-                for b_name, items_list in video_height_groups[h].items():
-                    grouped_formats[b_name] = items_list
+            # Sort video groups by height ascending, fps ascending, ext ascending
+            for (height, fps_val, ext, b_name), items_list in sorted(video_groups.items(), key=lambda x: (x[0][0], x[0][1], x[0][2])):
+                grouped_formats[b_name] = items_list
 
             # Append audio stream groups
             for b_name, items_list in audio_stream_groups.items():
@@ -212,7 +206,7 @@ class YtSelection:
             for b_idx, (b_name, items_list) in enumerate(grouped_formats.items()):
                 b_key = str(b_idx)
                 items_dict = {}
-                for t_idx, (tbr_str, size, v_format) in enumerate(items_list):
+                for t_idx, (tbr_val, tbr_str, size, v_format) in enumerate(items_list):
                     t_key = str(t_idx)
                     items_dict[t_key] = [size, v_format, tbr_str]
 

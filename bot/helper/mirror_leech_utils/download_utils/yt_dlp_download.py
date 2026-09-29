@@ -291,6 +291,9 @@ class YoutubeDLHelper:
 
             if not download_success:
                 if not self._listener.is_cancelled:
+                    LOGGER.error(
+                        f"YT-DLP Download Failed | URL: {self._listener.link} | Format: {self.opts.get('format')} | Error: {last_err}"
+                    )
                     self._on_download_error(str(last_err))
                 return
 
