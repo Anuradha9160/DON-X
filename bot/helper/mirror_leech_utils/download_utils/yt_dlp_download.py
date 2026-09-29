@@ -178,24 +178,28 @@ class YoutubeDLHelper:
             except Exception as e:
                 return self._on_download_error(str(e))
             if self.is_playlist:
-                self.playlist_count = result.get("playlist_count", 0)
+                entries = list(result.get("entries", [])) if "entries" in result else []
+                self.playlist_count = result.get("playlist_count") or len([e for e in entries if e])
             if "entries" in result:
-                for entry in result["entries"]:
-                    if not entry:
-                        continue
+                entries = [e for e in result["entries"] if e]
+                for entry in entries:
                     if entry.get("ext") == "unknown_video":
                         entry["ext"] = "mp4"
                     if "filesize_approx" in entry:
                         self._listener.size += entry.get("filesize_approx", 0) or 0
                     elif "filesize" in entry:
                         self._listener.size += entry.get("filesize", 0) or 0
-                    if not self._listener.name:
+                if not self._listener.name:
+                    p_title = result.get("title") or result.get("playlist_title")
+                    if p_title:
+                        self._listener.name = p_title
+                    elif entries:
                         outtmpl_ = "%(series,playlist_title,channel)s%(season_number& |)s%(season_number&S|)s%(season_number|)02d.%(ext)s"
-                        self._listener.name, ext = ospath.splitext(
-                            ydl.prepare_filename(entry, outtmpl=outtmpl_)
-                        )
-                        if not self._ext:
-                            self._ext = ext
+                        fname = ydl.prepare_filename(entries[0], outtmpl=outtmpl_)
+                        if fname:
+                            self._listener.name = ospath.splitext(fname)[0]
+                    if not self._listener.name:
+                        self._listener.name = "Playlist"
             else:
                 if result.get("ext") == "unknown_video":
                     result["ext"] = "mp4"

@@ -62,7 +62,11 @@ async def select_format(_, query, obj):
         obj.event.set()
     else:
         if data[1] == "sub":
-            obj.qual = obj.formats[data[2]][data[3]][1]
+            b_data = obj.formats[data[2]]
+            if isinstance(b_data, dict) and "items" in b_data:
+                obj.qual = b_data["items"][data[3]][1]
+            else:
+                obj.qual = b_data[data[3]][1]
         elif "|" in data[1]:
             obj.qual = obj.formats[data[1]]
         else:
@@ -129,24 +133,30 @@ class YtSelection:
                         self._is_m4a = True
                         break
 
+                grouped_formats = {}
                 for item in format_dict:
                     format_id = item.get("format_id")
                     if not format_id:
                         continue
 
+                    if (item.get("vcodec") == "none" and item.get("acodec") == "none") or item.get("ext") == "mhtml":
+                        continue
+
                     size = item.get("filesize") or item.get("filesize_approx") or 0
 
-                    if item.get("video_ext") == "none" and (
-                        item.get("resolution") == "audio only"
-                        or item.get("acodec") != "none"
-                    ):
-                        b_name = f"{item.get('acodec') or format_id}-{item.get('ext', 'audio')}"
+                    if item.get("video_ext") == "none" or item.get("vcodec") == "none":
+                        if item.get("acodec") == "none":
+                            continue
+                        acodec = item.get("acodec") or format_id
+                        ext = item.get("ext") or "audio"
+                        b_name = f"{acodec}-{ext}"
                         v_format = format_id
                     elif item.get("height"):
                         height = item["height"]
-                        ext = item.get("ext", "mp4")
-                        fps = item.get("fps") if item.get("fps") else ""
-                        b_name = f"{height}p{fps}-{ext}"
+                        ext = item.get("ext") or "mp4"
+                        fps = item.get("fps")
+                        fps_str = f"{int(round(fps))}" if fps and round(fps) > 1 else ""
+                        b_name = f"{height}p{fps_str}-{ext}" if fps_str else f"{height}p-{ext}"
                         ba_ext = (
                             "[ext=m4a]" if self._is_m4a and ext == "mp4" else ""
                         )
@@ -156,19 +166,28 @@ class YtSelection:
 
                     tbr = item.get("tbr") or (
                         (item.get("vbr") or 0) + (item.get("abr") or 0)
-                    ) or format_id
-                    self.formats.setdefault(b_name, {})[f"{tbr}"] = [
-                        size,
-                        v_format,
-                    ]
+                    )
+                    tbr_str = f"{int(round(tbr))}" if tbr else format_id
+                    grouped_formats.setdefault(b_name, []).append((tbr_str, size, v_format))
 
-                for b_name, tbr_dict in self.formats.items():
-                    if len(tbr_dict) == 1:
-                        tbr, v_list = next(iter(tbr_dict.items()))
-                        buttonName = f"{b_name} ({get_readable_file_size(v_list[0])})"
-                        buttons.data_button(buttonName, f"ytq sub {b_name} {tbr}")
+                for b_idx, (b_name, items_list) in enumerate(grouped_formats.items()):
+                    b_key = str(b_idx)
+                    items_dict = {}
+                    for t_idx, (tbr_str, size, v_format) in enumerate(items_list):
+                        t_key = str(t_idx)
+                        items_dict[t_key] = [size, v_format, tbr_str]
+
+                    self.formats[b_key] = {
+                        "name": b_name,
+                        "items": items_dict,
+                    }
+
+                    if len(items_dict) == 1:
+                        t_key, v_list = next(iter(items_dict.items()))
+                        button_name = f"{b_name} ({get_readable_file_size(v_list[0])})"
+                        buttons.data_button(button_name, f"ytq sub {b_key} {t_key}")
                     else:
-                        buttons.data_button(b_name, f"ytq dict {b_name}")
+                        buttons.data_button(b_name, f"ytq dict {b_key}")
             buttons.data_button("MP3", "ytq mp3")
             buttons.data_button("Audio Formats", "ytq audio")
             buttons.data_button("Best Video", "ytq bv*+ba/b")
@@ -191,12 +210,16 @@ class YtSelection:
             msg = f"Choose Video Quality:\nTimeout: {get_readable_time(self._timeout - (time() - self._time))}"
         await edit_message(self._reply_to, msg, self._main_buttons)
 
-    async def qual_subbuttons(self, b_name):
+    async def qual_subbuttons(self, b_key):
         buttons = ButtonMaker()
-        tbr_dict = self.formats[b_name]
-        for tbr, d_data in tbr_dict.items():
-            button_name = f"{tbr}K ({get_readable_file_size(d_data[0])})"
-            buttons.data_button(button_name, f"ytq sub {b_name} {tbr}")
+        b_data = self.formats[b_key]
+        b_name = b_data["name"] if isinstance(b_data, dict) and "name" in b_data else b_key
+        tbr_dict = b_data["items"] if isinstance(b_data, dict) and "items" in b_data else b_data
+        for t_key, d_data in tbr_dict.items():
+            tbr_disp = d_data[2] if len(d_data) > 2 else t_key
+            tbr_label = f"{tbr_disp}K" if str(tbr_disp).isdigit() else f"{tbr_disp}"
+            button_name = f"{tbr_label} ({get_readable_file_size(d_data[0])})"
+            buttons.data_button(button_name, f"ytq sub {b_key} {t_key}")
         buttons.data_button("Back", "ytq back", "footer")
         buttons.data_button("Cancel", "ytq cancel", "footer")
         subbuttons = buttons.build_menu(2)
