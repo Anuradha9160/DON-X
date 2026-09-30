@@ -284,7 +284,12 @@ def _mega_py_fetch_info(listener, email, password):
         file_key_str = parsed[1]
 
         file_key = c.base64_to_a32(file_key_str)
-        file_data = m._api_request({"a": "g", "g": 1, "p": file_id})
+        try:
+            file_data = m._api_request({"a": "g", "g": 1, "p": file_id})
+        except Exception as e:
+            LOGGER.warning(f"Mega file info request failed with user session ({e}), retrying with anonymous session")
+            m = Mega().login()
+            file_data = m._api_request({"a": "g", "g": 1, "p": file_id})
 
         if "g" not in file_data:
             raise RuntimeError("MEGA file not accessible or link expired.")
@@ -342,7 +347,12 @@ def _mega_py_fetch_info(listener, email, password):
             folder_key_str = folder_key_str.split("/")[0]
 
         k_folder = c.base64_to_a32(folder_key_str)
-        nodes_res = m._api_request({"a": "f", "c": 1, "r": 1, "ca": 1, "n": folder_id})
+        try:
+            nodes_res = m._api_request({"a": "f", "c": 1, "r": 1, "ca": 1, "n": folder_id})
+        except Exception as e:
+            LOGGER.warning(f"Mega folder node request failed with user session ({e}), retrying with anonymous session")
+            m = Mega().login()
+            nodes_res = m._api_request({"a": "f", "c": 1, "r": 1, "ca": 1, "n": folder_id})
 
         if not isinstance(nodes_res, dict) or "f" not in nodes_res:
             raise RuntimeError("Failed to fetch node list for MEGA folder.")
@@ -484,7 +494,13 @@ def _mega_py_start_download(listener, path, info, status_helper):
 
             file_dest_path = os.path.join(file_dest_folder, file_obj["name"])
 
-            file_data = m._api_request({"a": "g", "g": 1, "n": file_obj["h"]})
+            try:
+                file_data = m._api_request({"a": "g", "g": 1, "n": file_obj["h"]})
+            except Exception as e:
+                LOGGER.warning(f"Mega file download request failed with user session ({e}), retrying with anonymous session")
+                m = Mega().login()
+                file_data = m._api_request({"a": "g", "g": 1, "n": file_obj["h"]})
+
             if "g" not in file_data:
                 LOGGER.warning(f"Could not get download URL for file {file_obj['name']}")
                 continue
