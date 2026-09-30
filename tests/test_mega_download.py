@@ -162,6 +162,7 @@ class TestMegaDownload(unittest.IsolatedAsyncioTestCase):
 
     def test_mega_py_fetch_info_credentials_and_fallback(self):
         from unittest.mock import patch
+        from mega import Mega
         from bot.helper.mirror_leech_utils.download_utils.mega_download import _mega_py_fetch_info
 
         class DummyListener:
@@ -172,28 +173,47 @@ class TestMegaDownload(unittest.IsolatedAsyncioTestCase):
 
         listener = DummyListener()
 
-        with patch("mega.Mega") as MockMega, patch("mega.crypto.decrypt_attr", return_value={"n": "test_file.mp4"}):
-            mock_instance = MagicMock()
-            MockMega.return_value = mock_instance
-            mock_instance._parse_url.return_value = "zHgE1DwB!WBLS_qbRZ2qRZDhgK-r36J09Kd1lsV_eHG3jKbiUE04"
-            mock_instance._api_request.return_value = {
-                "g": "http://gfs.mega.co.nz/dl/test",
-                "s": 12345,
-                "at": "eA=="
-            }
-            mock_instance.login.return_value = mock_instance
+        m_dummy = Mega()
+        m_dummy._api_request = MagicMock(return_value={"g": "http://gfs.mega.co.nz/dl/test", "s": 12345, "at": "eA=="})
+
+        with patch.object(Mega, "login", return_value=m_dummy) as mock_login, \
+             patch("mega.crypto.decrypt_attr", return_value={"n": "test_file.mp4"}):
 
             # Test 1: With credentials -> mega.login(email, password) called
             _mega_py_fetch_info(listener, "test@example.com", "password123")
-            mock_instance.login.assert_called_with("test@example.com", "password123")
+            mock_login.assert_called_with("test@example.com", "password123")
 
             # Reset mocks
-            mock_instance.reset_mock()
-            MockMega.reset_mock()
+            mock_login.reset_mock()
 
             # Test 2: Without credentials -> mega.login is NEVER called without args
             _mega_py_fetch_info(listener, None, None)
-            mock_instance.login.assert_not_called()
+            mock_login.assert_not_called()
+
+    def test_mega_py_api_request_patch_folder(self):
+        from unittest.mock import patch
+        from mega import Mega
+        from bot.helper.mirror_leech_utils.download_utils.mega_download import _patch_mega_py
+
+        _patch_mega_py()
+        m = Mega()
+
+        with patch("requests.post") as mock_post:
+            mock_resp = MagicMock()
+            mock_resp.text = '[{"f": []}]'
+            mock_post.return_value = mock_resp
+
+            # Call patched _api_request with folder data containing 'n'
+            res = m._api_request({"a": "f", "c": 1, "r": 1, "ca": 1, "n": "folder_123"})
+
+            # Verify 'n' was moved to params and removed from payload
+            self.assertEqual(res, {"f": []})
+            mock_post.assert_called_once()
+            _, kwargs = mock_post.call_args
+            self.assertIn("params", kwargs)
+            self.assertEqual(kwargs["params"].get("n"), "folder_123")
+            self.assertIn("data", kwargs)
+            self.assertNotIn("folder_123", kwargs["data"])
 
 
 if __name__ == "__main__":

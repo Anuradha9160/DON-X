@@ -44,13 +44,7 @@ from ...mirror_leech_utils.status_utils.mega_status import MegaDownloadStatus
 from ...mirror_leech_utils.status_utils.queue_status import QueueStatus
 
 
-_MEGA_PY_PATCHED = False
-
 def _patch_mega_py():
-    global _MEGA_PY_PATCHED
-    if _MEGA_PY_PATCHED:
-        return
-    _MEGA_PY_PATCHED = True
     try:
         from mega.errors import RequestError
         if not getattr(RequestError, "_is_patched", False):
@@ -68,17 +62,74 @@ def _patch_mega_py():
 
     try:
         import re
+        import json
+        import requests
         from mega import Mega
-        if not getattr(Mega, "_is_patched", False):
-            _orig_parse_url = Mega.parse_url
+        if hasattr(Mega, "_parse_url") and not getattr(Mega, "_is_patched", False):
+            _orig_parse_url = Mega._parse_url
             def _patched_parse_url(self, url):
                 m = re.search(r"mega\.(?:co\.)?nz/(file|folder)/([^#]+)#(.+)", url)
                 if m:
                     prefix = "#F!" if m.group(1) == "folder" else "#!"
                     url = f"https://mega.nz/{prefix}{m.group(2)}!{m.group(3)}"
                 return _orig_parse_url(self, url)
-            Mega.parse_url = _patched_parse_url
+            Mega._parse_url = _patched_parse_url
             Mega._is_patched = True
+
+        from tenacity import retry, retry_if_exception_type, wait_exponential
+        if not getattr(getattr(Mega, "_api_request", None), "_is_mega_patched", False):
+            def _patched_api_request(self, data):
+                req_params = {"id": self.sequence_num}
+                self.sequence_num += 1
+
+                if self.sid:
+                    req_params.update({"sid": self.sid})
+
+                data_copy = data
+                if isinstance(data, dict):
+                    if data.get("a") == "f" and "n" in data:
+                        data_copy = dict(data)
+                        req_params["n"] = data_copy.pop("n")
+                    data_list = [data_copy]
+                elif isinstance(data, list):
+                    data_list = data
+                else:
+                    data_list = [data]
+
+                url = f"{self.schema}://g.api.{self.domain}/cs"
+                response = requests.post(
+                    url,
+                    params=req_params,
+                    data=json.dumps(data_list),
+                    timeout=self.timeout,
+                )
+                json_resp = json.loads(response.text)
+                try:
+                    if isinstance(json_resp, list):
+                        int_resp = json_resp[0] if isinstance(json_resp[0], int) else None
+                    elif isinstance(json_resp, int):
+                        int_resp = json_resp
+                    else:
+                        int_resp = None
+                except IndexError:
+                    int_resp = None
+
+                if int_resp is not None:
+                    if int_resp == 0:
+                        return int_resp
+                    if int_resp == -3:
+                        msg = "Request failed, retrying"
+                        raise RuntimeError(msg)
+                    from mega.errors import RequestError
+                    raise RequestError(int_resp)
+                return json_resp[0]
+
+            patched_fn = retry(
+                retry=retry_if_exception_type(RuntimeError),
+                wait=wait_exponential(multiplier=2, min=2, max=60),
+            )(_patched_api_request)
+            patched_fn._is_mega_patched = True
+            Mega._api_request = patched_fn
     except Exception:
         pass
 
@@ -287,8 +338,9 @@ def _mega_py_fetch_info(listener, email, password):
         try:
             file_data = m._api_request({"a": "g", "g": 1, "p": file_id})
         except Exception as e:
-            if "EACCESS" in str(e) or "Access violation" in str(e):
-                LOGGER.warning("Access violation with logged in account for public file, retrying unauthenticated...")
+            err_str = str(e)
+            if any(err in err_str for err in ("EACCESS", "ESID", "Access violation", "Invalid or expired user session")):
+                LOGGER.warning(f"Session/access error with account ({e}), retrying unauthenticated...")
                 unauth_m = Mega()
                 file_data = unauth_m._api_request({"a": "g", "g": 1, "p": file_id})
                 m = unauth_m
@@ -354,8 +406,9 @@ def _mega_py_fetch_info(listener, email, password):
         try:
             nodes_res = m._api_request({"a": "f", "c": 1, "r": 1, "ca": 1, "n": folder_id})
         except Exception as e:
-            if "EACCESS" in str(e) or "Access violation" in str(e):
-                LOGGER.warning("Access violation with logged in account for public folder, retrying unauthenticated...")
+            err_str = str(e)
+            if any(err in err_str for err in ("EACCESS", "ESID", "Access violation", "Invalid or expired user session")):
+                LOGGER.warning(f"Session/access error with account ({e}), retrying unauthenticated...")
                 unauth_m = Mega()
                 nodes_res = unauth_m._api_request({"a": "f", "c": 1, "r": 1, "ca": 1, "n": folder_id})
                 m = unauth_m
@@ -505,8 +558,9 @@ def _mega_py_start_download(listener, path, info, status_helper):
             try:
                 file_data = m._api_request({"a": "g", "g": 1, "n": file_obj["h"]})
             except Exception as e:
-                if "EACCESS" in str(e) or "Access violation" in str(e):
-                    LOGGER.warning("Access violation with logged in account for public file node, retrying unauthenticated...")
+                err_str = str(e)
+                if any(err in err_str for err in ("EACCESS", "ESID", "Access violation", "Invalid or expired user session")):
+                    LOGGER.warning(f"Session/access error with account for file node ({e}), retrying unauthenticated...")
                     unauth_m = Mega()
                     file_data = unauth_m._api_request({"a": "g", "g": 1, "n": file_obj["h"]})
                     m = unauth_m
