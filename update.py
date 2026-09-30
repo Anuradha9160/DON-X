@@ -2,12 +2,12 @@ from asyncio import run
 from hashlib import sha256
 from importlib import import_module
 from logging import ERROR, INFO, FileHandler, StreamHandler, basicConfig, getLogger
-from os import environ, path, remove
-from os.path import isdir
+from os import environ, remove
+from os.path import exists, isdir
 from shutil import rmtree
 from subprocess import call as scall
 from subprocess import run as srun
-from sys import exit
+from sys import exit, prefix, base_prefix
 
 getLogger("pymongo").setLevel(ERROR)
 
@@ -34,10 +34,10 @@ def _get_version():
 
 
 def _setup_logging():
-    if path.exists("log.txt"):
+    if exists("log.txt"):
         with open("log.txt", "w"):
             pass
-    if path.exists("rlog.txt"):
+    if exists("rlog.txt"):
         remove("rlog.txt")
     basicConfig(
         format="[%(asctime)s] [%(levelname)s] - %(message)s",
@@ -70,10 +70,19 @@ def _db_partition_id(bot_id):
     return f"p_{raw[:24]}"
 
 
-async def _fetch_db_config(database_url, db_part, collection="config"):
-    pip_cmd = "pip"
+def _get_pip_cmd():
     if srun(["which", "uv"], capture_output=True).returncode == 0:
-        pip_cmd = "uv pip"
+        if exists("/wzvenv/bin/python"):
+            return "uv pip --python /wzvenv/bin/python"
+        elif "VIRTUAL_ENV" in environ or prefix != base_prefix:
+            return "uv pip"
+        else:
+            return "uv pip --system"
+    return "pip"
+
+
+async def _fetch_db_config(database_url, db_part, collection="config"):
+    pip_cmd = _get_pip_cmd()
     try:
         from pymongo import AsyncMongoClient
         from pymongo.server_api import ServerApi
@@ -135,7 +144,7 @@ def _run_update(upstream_repo, upstream_branch, version):
     if not upstream_repo:
         _LOGGER.info("No UPSTREAM_REPO set, skipping git update")
         return
-    if path.exists(".git"):
+    if exists(".git"):
         git_cmds = [
             ["git", "remote", "set-url", "origin", upstream_repo],
             ["git", "fetch", "origin", "-q"],
@@ -173,9 +182,7 @@ def _run_update(upstream_repo, upstream_branch, version):
 
 
 def _update_packages():
-    pip_cmd = "pip"
-    if srun(["which", "uv"], capture_output=True).returncode == 0:
-        pip_cmd = "uv pip"
+    pip_cmd = _get_pip_cmd()
     scall(f"{pip_cmd} install -U -r requirements.txt", shell=True)
     scall(f"{pip_cmd} install --no-deps mega.py>=1.0.8", shell=True)
     _LOGGER.info("Successfully Updated all the Packages!")
@@ -186,7 +193,7 @@ def _cleanup():
         if isdir(d):
             rmtree(d, ignore_errors=True)
     for f in ["README.md", "LICENSE", "Dockerfile", "docker-compose.yml"]:
-        if path.exists(f):
+        if exists(f):
             remove(f)
 
 

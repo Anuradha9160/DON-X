@@ -20,12 +20,16 @@ from ..status_utils.yt_dlp_status import YtDlpStatus
 LOGGER = getLogger(__name__)
 
 
-def get_cookie_file(user_dict):
+def get_cookie_file(user_dict=None, user_id=None):
+    if user_dict is None:
+        user_dict = {}
     if not user_dict.get("USE_DEFAULT_COOKIE", False):
         usr_cookie = user_dict.get("USER_COOKIE_FILE", "")
         if usr_cookie and ospath.exists(usr_cookie):
-            return usr_cookie
-    return "cookies.txt"
+            return usr_cookie, None
+    if ospath.exists("cookies.txt"):
+        return "cookies.txt", None
+    return None, None
 
 
 class MyLogger:
@@ -88,11 +92,14 @@ class YoutubeDLHelper:
                 "extractor": lambda n: 3,
             },
         }
-        cookie_to_use = get_cookie_file(self._listener.user_dict)
-        self.opts["cookiefile"] = cookie_to_use
-        LOGGER.info(
-            f"Using cookies.txt file: {cookie_to_use} | User ID : {self._listener.user_id}"
+        cookie_to_use, _ = get_cookie_file(
+            self._listener.user_dict, getattr(self._listener, "user_id", None)
         )
+        if cookie_to_use:
+            self.opts["cookiefile"] = cookie_to_use
+            LOGGER.info(
+                f"Using cookies.txt file: {cookie_to_use} | User ID : {self._listener.user_id}"
+            )
 
     @property
     def download_speed(self):
