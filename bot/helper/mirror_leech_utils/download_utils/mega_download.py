@@ -92,10 +92,10 @@ def _mega_py_download_sync(listener, path, email, password, status_helper=None):
         try:
             m = mega.login(email, password)
         except Exception as e:
-            LOGGER.warning(f"Mega user login failed, falling back to anonymous: {e}")
+            LOGGER.warning(f"Mega user login failed, falling back to unauthenticated: {e}")
             m = None
     if m is None:
-        m = mega.login()
+        m = mega
 
     downloaded_path = m.download_url(listener.link, dest_path=path)
     return downloaded_path
@@ -264,7 +264,15 @@ def _mega_py_fetch_info(listener, email, password):
     import re
 
     mega = Mega()
-    m = mega.login() # Anonymous login for public links to avoid EACCESS error on user accounts
+    m = None
+    if email and password:
+        try:
+            m = mega.login(email, password)
+        except Exception as e:
+            LOGGER.warning(f"Mega user login failed, falling back to unauthenticated: {e}")
+            m = None
+    if m is None:
+        m = mega
 
     url = listener.link
     is_folder = is_mega_folder_link(url)
@@ -280,10 +288,10 @@ def _mega_py_fetch_info(listener, email, password):
             file_data = m._api_request({"a": "g", "g": 1, "p": file_id})
         except Exception as e:
             if "EACCESS" in str(e) or "Access violation" in str(e):
-                LOGGER.warning("Access violation with logged in account for public file, retrying anonymously...")
-                anon_m = mega.login()
-                file_data = anon_m._api_request({"a": "g", "g": 1, "p": file_id})
-                m = anon_m
+                LOGGER.warning("Access violation with logged in account for public file, retrying unauthenticated...")
+                unauth_m = Mega()
+                file_data = unauth_m._api_request({"a": "g", "g": 1, "p": file_id})
+                m = unauth_m
             else:
                 raise e
 
@@ -347,10 +355,10 @@ def _mega_py_fetch_info(listener, email, password):
             nodes_res = m._api_request({"a": "f", "c": 1, "r": 1, "ca": 1, "n": folder_id})
         except Exception as e:
             if "EACCESS" in str(e) or "Access violation" in str(e):
-                LOGGER.warning("Access violation with logged in account for public folder, retrying anonymously...")
-                anon_m = mega.login()
-                nodes_res = anon_m._api_request({"a": "f", "c": 1, "r": 1, "ca": 1, "n": folder_id})
-                m = anon_m
+                LOGGER.warning("Access violation with logged in account for public folder, retrying unauthenticated...")
+                unauth_m = Mega()
+                nodes_res = unauth_m._api_request({"a": "f", "c": 1, "r": 1, "ca": 1, "n": folder_id})
+                m = unauth_m
             else:
                 raise e
 
@@ -498,10 +506,10 @@ def _mega_py_start_download(listener, path, info, status_helper):
                 file_data = m._api_request({"a": "g", "g": 1, "n": file_obj["h"]})
             except Exception as e:
                 if "EACCESS" in str(e) or "Access violation" in str(e):
-                    LOGGER.warning("Access violation with logged in account for public file node, retrying anonymously...")
-                    anon_m = mega.login()
-                    file_data = anon_m._api_request({"a": "g", "g": 1, "n": file_obj["h"]})
-                    m = anon_m
+                    LOGGER.warning("Access violation with logged in account for public file node, retrying unauthenticated...")
+                    unauth_m = Mega()
+                    file_data = unauth_m._api_request({"a": "g", "g": 1, "n": file_obj["h"]})
+                    m = unauth_m
                 else:
                     LOGGER.warning(f"Error fetching file URL for node {file_obj['name']}: {e}")
                     continue

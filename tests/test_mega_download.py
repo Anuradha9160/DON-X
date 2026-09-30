@@ -160,6 +160,41 @@ class TestMegaDownload(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(res3)
         await _release_link(test_link)
 
+    def test_mega_py_fetch_info_credentials_and_fallback(self):
+        from unittest.mock import patch
+        from bot.helper.mirror_leech_utils.download_utils.mega_download import _mega_py_fetch_info
+
+        class DummyListener:
+            def __init__(self):
+                self.link = "https://mega.nz/file/zHgE1DwB#WBLS_qbRZ2qRZDhgK-r36J09Kd1lsV_eHG3jKbiUE04"
+                self.name = ""
+                self.size = 0
+
+        listener = DummyListener()
+
+        with patch("mega.Mega") as MockMega, patch("mega.crypto.decrypt_attr", return_value={"n": "test_file.mp4"}):
+            mock_instance = MagicMock()
+            MockMega.return_value = mock_instance
+            mock_instance._parse_url.return_value = "zHgE1DwB!WBLS_qbRZ2qRZDhgK-r36J09Kd1lsV_eHG3jKbiUE04"
+            mock_instance._api_request.return_value = {
+                "g": "http://gfs.mega.co.nz/dl/test",
+                "s": 12345,
+                "at": "eA=="
+            }
+            mock_instance.login.return_value = mock_instance
+
+            # Test 1: With credentials -> mega.login(email, password) called
+            _mega_py_fetch_info(listener, "test@example.com", "password123")
+            mock_instance.login.assert_called_with("test@example.com", "password123")
+
+            # Reset mocks
+            mock_instance.reset_mock()
+            MockMega.reset_mock()
+
+            # Test 2: Without credentials -> mega.login is NEVER called without args
+            _mega_py_fetch_info(listener, None, None)
+            mock_instance.login.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
