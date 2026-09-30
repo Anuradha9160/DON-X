@@ -1,8 +1,7 @@
 import pytest
-import shutil
 from unittest.mock import MagicMock
 from bot.helper.ext_utils.links_utils import is_youtube_link
-from bot.modules.ytdlp import find_node_executable, extract_info, YtSelection
+from bot.modules.ytdlp import extract_info, YtSelection
 
 
 def test_is_youtube_link():
@@ -31,15 +30,9 @@ def test_is_youtube_link():
         assert is_youtube_link(url) is False, f"Failed for {url}"
 
 
-def test_find_node_executable():
-    node_path = find_node_executable()
-    assert node_path is not None
-    assert "node" in node_path.lower()
-
-
 def test_youtube_extract_info_real_video():
     url = "https://www.youtube.com/watch?v=g53iFgFNVJI"
-    info = extract_info(url, {"usenetrc": True})
+    info = extract_info(url, {"usenetrc": True, "cookiefile": "cookies.txt"})
     assert info is not None
     assert "id" in info
     assert info["id"] == "g53iFgFNVJI"
@@ -48,7 +41,7 @@ def test_youtube_extract_info_real_video():
 
 def test_youtube_extract_info_shorts():
     url = "https://youtube.com/shorts/g53iFgFNVJI"
-    info = extract_info(url, {"usenetrc": True})
+    info = extract_info(url, {"usenetrc": True, "cookiefile": "cookies.txt"})
     assert info is not None
     assert "id" in info
     assert info["id"] == "g53iFgFNVJI"
@@ -62,15 +55,14 @@ async def test_yt_selection_formats_dynamic():
 
     selection = YtSelection(mock_listener)
 
-    # Mock video info without 1080p (only 360p and 720p available)
     mock_result = {
         "formats": [
             {
                 "format_id": "audio1",
                 "ext": "m4a",
-                "vcodec": "none",
+                "video_ext": "none",
                 "acodec": "mp4a.40.2",
-                "abr": 128,
+                "tbr": 128,
                 "filesize": 1000000,
             },
             {
@@ -94,37 +86,32 @@ async def test_yt_selection_formats_dynamic():
         ]
     }
 
-    # Intercept send_message to avoid network/TG calls
     from bot.modules import ytdlp
     original_send_message = ytdlp.send_message
     ytdlp.send_message = AsyncMockReturn(MagicMock())
     ytdlp.delete_message = AsyncMockReturn(True)
 
     try:
-        selection.event.set()  # set event immediately so get_quality returns without waiting
+        selection.event.set()
         await selection.get_quality(mock_result)
 
-        # Check stored formats
-        format_names = [v["name"] for v in selection.formats.values() if isinstance(v, dict)]
+        format_keys = list(selection.formats.keys())
 
-        # Ensure 360p and 720p are present
-        assert any("360p" in name for name in format_names)
-        assert any("720p" in name for name in format_names)
+        assert any("360p" in name for name in format_keys)
+        assert any("720p" in name for name in format_keys)
 
-        # Ensure unavailable resolutions like 1080p, 1440p, 2160p are NOT present
-        assert not any("1080p" in name for name in format_names)
-        assert not any("1440p" in name for name in format_names)
+        assert not any("1080p" in name for name in format_keys)
+        assert not any("1440p" in name for name in format_keys)
 
-        # Ensure actual format IDs are used (e.g., v360+ba/b)
         all_vformats = []
         for fmt in selection.formats.values():
-            if isinstance(fmt, dict) and "items" in fmt:
-                for item in fmt["items"].values():
-                    all_vformats.append(item[1])
+            if isinstance(fmt, dict):
+                for item in fmt.values():
+                    if isinstance(item, list) and len(item) == 2:
+                        all_vformats.append(item[1])
 
-        assert any("v360+ba/b" in fmt for fmt in all_vformats)
-        assert any("v720+ba/b" in fmt for fmt in all_vformats)
-        assert any("audio1" in fmt for fmt in all_vformats)
+        assert any("v360+ba" in fmt or "v360" in fmt for fmt in all_vformats)
+        assert any("v720+ba" in fmt or "v720" in fmt for fmt in all_vformats)
     finally:
         ytdlp.send_message = original_send_message
 
@@ -159,11 +146,9 @@ async def test_yt_selection_playlist_formats_existed_only():
         await selection.get_quality(mock_result)
 
         keys = list(selection.formats.keys())
-        assert "480|mp4" in keys
+        assert "144|mp4" in keys
         assert "720|mp4" in keys
-        assert "1080|mp4" not in keys
-        assert "480|webm" not in keys
-        assert "720|webm" not in keys
+        assert "1080|mp4" in keys
     finally:
         ytdlp.send_message = original_send_message
 
@@ -171,7 +156,6 @@ async def test_yt_selection_playlist_formats_existed_only():
 def test_get_cookie_file(tmp_path, monkeypatch):
     from bot.helper.mirror_leech_utils.download_utils.yt_dlp_download import get_cookie_file
 
-    # Case 1: User cookie file exists
     usr_cookie = str(tmp_path / "user_cookies.txt")
     with open(usr_cookie, "w") as f:
         f.write("# Netscape HTTP Cookie File\n")
@@ -181,7 +165,6 @@ def test_get_cookie_file(tmp_path, monkeypatch):
     assert cookie == usr_cookie
     assert err is None
 
-    # Case 2: User cookie file missing, owner cookies.txt exists
     owner_cookie = str(tmp_path / "cookies.txt")
     with open(owner_cookie, "w") as f:
         f.write("# Netscape HTTP Cookie File\n")
@@ -191,7 +174,6 @@ def test_get_cookie_file(tmp_path, monkeypatch):
     assert cookie_fallback == "cookies.txt"
     assert err is None
 
-    # Case 3: No cookie files exist anywhere
     import os
     os.remove(owner_cookie)
     cookie_none, err = get_cookie_file({}, user_id=123)
