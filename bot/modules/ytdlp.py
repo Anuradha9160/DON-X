@@ -271,17 +271,42 @@ def find_node_executable():
     return "node"
 
 
+def setup_js_runtimes(opts):
+    if "js_runtimes" not in opts:
+        node_exe = find_node_executable()
+        if node_exe:
+            if "deno" in node_exe.lower():
+                opts["js_runtimes"] = {"deno": {"path": node_exe}}
+            elif "bun" in node_exe.lower():
+                opts["js_runtimes"] = {"bun": {"path": node_exe}}
+            else:
+                opts["js_runtimes"] = {"node": {"path": node_exe}}
+
+
 def extract_info(link, options):
     opts = dict(options)
-    node_exe = find_node_executable()
-    if node_exe and "js_runtimes" not in opts:
-        opts["js_runtimes"] = {"node": {}}
+    setup_js_runtimes(opts)
 
-    with YoutubeDL(opts) as ydl:
-        result = ydl.extract_info(link, download=False)
-        if result is None:
-            raise ValueError("Info result is None")
-        return result
+    try:
+        with YoutubeDL(opts) as ydl:
+            result = ydl.extract_info(link, download=False)
+            if result is None:
+                raise ValueError("Info result is None")
+            return result
+    except Exception as e:
+        err_msg = str(e)
+        if is_youtube_link(link) and "reloaded" in err_msg.lower():
+            LOGGER.warning(f"YouTube reload error caught: {err_msg}. Retrying with webm format preference...")
+            retry_opts = dict(opts)
+            retry_opts["format"] = "bv*[ext=webm]+ba/b[ext=webm]/b"
+            try:
+                with YoutubeDL(retry_opts) as ydl:
+                    result = ydl.extract_info(link, download=False)
+                    if result:
+                        return result
+            except Exception as retry_err:
+                LOGGER.warning(f"Webm retry failed: {retry_err}")
+        raise
 
 
 async def _mdisk(link, name):
@@ -509,7 +534,9 @@ class YtDlp(TaskListener):
 
         self._set_mode_engine()
 
-        options = {"usenetrc": True}
+        options = {}
+        if ospath.exists(ospath.expanduser("~/.netrc")):
+            options["usenetrc"] = True
         cookie_to_use, _ = get_cookie_file(self.user_dict, self.user_id)
         if cookie_to_use:
             options["cookiefile"] = cookie_to_use

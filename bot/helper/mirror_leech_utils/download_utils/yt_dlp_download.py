@@ -79,7 +79,6 @@ class YoutubeDLHelper:
         self.opts = {
             "progress_hooks": [self._on_download_progress],
             "logger": MyLogger(self, self._listener),
-            "usenetrc": True,
             "allow_multiple_video_streams": True,
             "allow_multiple_audio_streams": True,
             "noprogress": True,
@@ -96,6 +95,8 @@ class YoutubeDLHelper:
                 "extractor": lambda n: 3,
             },
         }
+        if ospath.exists(ospath.expanduser("~/.netrc")):
+            self.opts["usenetrc"] = True
         user_dict = getattr(self._listener, "user_dict", {})
         user_id = getattr(self._listener, "user_id", 0)
         cookie_to_use, _ = get_cookie_file(user_dict, user_id)
@@ -165,20 +166,32 @@ class YoutubeDLHelper:
         async_to_sync(self._listener.on_download_error, error)
 
     def extract_meta_data(self, link, name):
-        from ....modules.ytdlp import find_node_executable
+        from ....modules.ytdlp import setup_js_runtimes
+        from ....ext_utils.links_utils import is_youtube_link
         opts = dict(self.opts)
-        node_exe = find_node_executable()
-        if node_exe and "js_runtimes" not in opts:
-            opts["js_runtimes"] = {"node": {}}
+        setup_js_runtimes(opts)
 
         if link.startswith(("rtmp", "mms", "rstp", "rtmps")):
             opts["external_downloader"] = "ffmpeg"
-        with YoutubeDL(opts) as ydl:
-            try:
+
+        result = None
+        try:
+            with YoutubeDL(opts) as ydl:
                 result = ydl.extract_info(link, download=False)
                 if result is None:
                     raise ValueError("Info result is None")
-            except Exception as e:
+        except Exception as e:
+            err_msg = str(e)
+            if is_youtube_link(link) and "reloaded" in err_msg.lower():
+                LOGGER.warning(f"YouTube reload error caught during metadata extraction: {err_msg}. Retrying with webm format...")
+                retry_opts = dict(opts)
+                retry_opts["format"] = "bv*[ext=webm]+ba/b[ext=webm]/b"
+                try:
+                    with YoutubeDL(retry_opts) as ydl:
+                        result = ydl.extract_info(link, download=False)
+                except Exception as retry_err:
+                    LOGGER.warning(f"Metadata webm retry failed: {retry_err}")
+            if result is None:
                 return self._on_download_error(str(e))
             if self.is_playlist:
                 self.playlist_count = result.get("playlist_count", 0)
@@ -215,17 +228,27 @@ class YoutubeDLHelper:
                 self._listener.size = self._size
 
     def _download(self, link, path):
-        from ....modules.ytdlp import find_node_executable
+        from ....modules.ytdlp import setup_js_runtimes
+        from ....ext_utils.links_utils import is_youtube_link
         opts = dict(self.opts)
-        node_exe = find_node_executable()
-        if node_exe and "js_runtimes" not in opts:
-            opts["js_runtimes"] = {"node": {}}
+        setup_js_runtimes(opts)
 
         try:
             with YoutubeDL(opts) as ydl:
                 try:
                     ydl.download([link])
                 except DownloadError as e:
+                    err_msg = str(e)
+                    if is_youtube_link(link) and "reloaded" in err_msg.lower():
+                        LOGGER.warning(f"YouTube reload error caught during download: {err_msg}. Retrying with webm format...")
+                        retry_opts = dict(opts)
+                        retry_opts["format"] = "bv*[ext=webm]+ba/b[ext=webm]/b"
+                        try:
+                            with YoutubeDL(retry_opts) as ydl:
+                                ydl.download([link])
+                                return
+                        except Exception as retry_err:
+                            LOGGER.warning(f"Download webm retry failed: {retry_err}")
                     if not self._is_cancelled and not self._listener.is_cancelled:
                         self._on_download_error(str(e))
                     return
