@@ -264,15 +264,7 @@ def _mega_py_fetch_info(listener, email, password):
     import re
 
     mega = Mega()
-    m = None
-    if email and password:
-        try:
-            m = mega.login(email, password)
-        except Exception as e:
-            LOGGER.warning(f"Mega login failed, falling back to anonymous: {e}")
-            m = None
-    if m is None:
-        m = mega.login()
+    m = mega.login() # Anonymous login for public links to avoid EACCESS error on user accounts
 
     url = listener.link
     is_folder = is_mega_folder_link(url)
