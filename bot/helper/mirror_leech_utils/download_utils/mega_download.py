@@ -83,8 +83,7 @@ def _patch_mega_py():
         pass
 
 
-def _mega_py_download_sync(listener, path, email, password, status_helper=None):
-    _patch_mega_py()
+def _mega_py_get_instance(email=None, password=None):
     from mega import Mega
     mega = Mega()
     m = None
@@ -92,11 +91,20 @@ def _mega_py_download_sync(listener, path, email, password, status_helper=None):
         try:
             m = mega.login(email, password)
         except Exception as e:
-            LOGGER.warning(f"Mega user login failed, falling back to anonymous: {e}")
+            LOGGER.warning(f"Mega user login failed, falling back to unauthenticated session: {e}")
             m = None
     if m is None:
-        m = mega.login()
+        try:
+            m = mega.login()
+        except Exception as e:
+            LOGGER.warning(f"Mega anonymous login failed ({e}), using unauthenticated session")
+            m = Mega()
+    return m
 
+
+def _mega_py_download_sync(listener, path, email, password, status_helper=None):
+    _patch_mega_py()
+    m = _mega_py_get_instance(email, password)
     downloaded_path = m.download_url(listener.link, dest_path=path)
     return downloaded_path
 
@@ -263,8 +271,7 @@ def _mega_py_fetch_info(listener, email, password):
     from mega import Mega
     import re
 
-    mega = Mega()
-    m = mega.login() # Anonymous login for public links to avoid EACCESS error on user accounts
+    m = _mega_py_get_instance(email, password)
 
     url = listener.link
     is_folder = is_mega_folder_link(url)
@@ -280,10 +287,9 @@ def _mega_py_fetch_info(listener, email, password):
             file_data = m._api_request({"a": "g", "g": 1, "p": file_id})
         except Exception as e:
             if "EACCESS" in str(e) or "Access violation" in str(e):
-                LOGGER.warning("Access violation with logged in account for public file, retrying anonymously...")
-                anon_m = mega.login()
-                file_data = anon_m._api_request({"a": "g", "g": 1, "p": file_id})
-                m = anon_m
+                LOGGER.warning("Access violation for public file, retrying with unauthenticated session...")
+                m = Mega()
+                file_data = m._api_request({"a": "g", "g": 1, "p": file_id})
             else:
                 raise e
 
@@ -347,10 +353,9 @@ def _mega_py_fetch_info(listener, email, password):
             nodes_res = m._api_request({"a": "f", "c": 1, "r": 1, "ca": 1, "n": folder_id})
         except Exception as e:
             if "EACCESS" in str(e) or "Access violation" in str(e):
-                LOGGER.warning("Access violation with logged in account for public folder, retrying anonymously...")
-                anon_m = mega.login()
-                nodes_res = anon_m._api_request({"a": "f", "c": 1, "r": 1, "ca": 1, "n": folder_id})
-                m = anon_m
+                LOGGER.warning("Access violation for public folder, retrying with unauthenticated session...")
+                m = Mega()
+                nodes_res = m._api_request({"a": "f", "c": 1, "r": 1, "ca": 1, "n": folder_id})
             else:
                 raise e
 
@@ -498,10 +503,10 @@ def _mega_py_start_download(listener, path, info, status_helper):
                 file_data = m._api_request({"a": "g", "g": 1, "n": file_obj["h"]})
             except Exception as e:
                 if "EACCESS" in str(e) or "Access violation" in str(e):
-                    LOGGER.warning("Access violation with logged in account for public file node, retrying anonymously...")
-                    anon_m = mega.login()
-                    file_data = anon_m._api_request({"a": "g", "g": 1, "n": file_obj["h"]})
-                    m = anon_m
+                    LOGGER.warning("Access violation for public file node, retrying with unauthenticated session...")
+                    from mega import Mega
+                    m = Mega()
+                    file_data = m._api_request({"a": "g", "g": 1, "n": file_obj["h"]})
                 else:
                     LOGGER.warning(f"Error fetching file URL for node {file_obj['name']}: {e}")
                     continue

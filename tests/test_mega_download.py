@@ -1,6 +1,8 @@
 import unittest
 import asyncio
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock, AsyncMock, patch
+
+from mega.errors import RequestError
 
 from bot.helper.ext_utils.links_utils import (
     is_mega_link,
@@ -19,6 +21,8 @@ from bot.helper.mirror_leech_utils.download_utils.mega_download import (
     MegaPyStatusHelper,
     _reserve_link,
     _release_link,
+    _mega_py_get_instance,
+    _mega_py_fetch_info,
 )
 from bot.helper.mirror_leech_utils.status_utils.mega_status import MegaDownloadStatus
 
@@ -159,6 +163,44 @@ class TestMegaDownload(unittest.IsolatedAsyncioTestCase):
         res3 = await _reserve_link(test_link)
         self.assertTrue(res3)
         await _release_link(test_link)
+
+    @patch("mega.Mega.login")
+    def test_mega_py_get_instance_eaccess_fallback(self, mock_login):
+        mock_login.side_effect = RequestError(-11)
+        instance = _mega_py_get_instance()
+        self.assertIsNotNone(instance)
+        self.assertIsNone(instance.sid)
+
+    @patch("bot.helper.mirror_leech_utils.download_utils.mega_download._mega_py_get_instance")
+    def test_mega_py_fetch_info_eaccess_retry(self, mock_get_instance):
+        class DummyListener:
+            def __init__(self):
+                self.link = "https://mega.nz/file/abc12345#xyz98765432101234567890"
+                self.name = ""
+                self.size = 0
+
+        listener = DummyListener()
+        mock_m1 = MagicMock()
+        mock_m1._parse_url.return_value = "abc12345!key"
+        mock_m1._api_request.side_effect = RequestError(-11)
+        mock_get_instance.return_value = mock_m1
+
+        with patch("mega.Mega._api_request") as mock_unauth_api_req, \
+             patch("mega.crypto.base64_to_a32", return_value=(1, 2, 3, 4, 5, 6, 7, 8)):
+            import mega.crypto as c
+            # Valid encrypted attributes for "test_file.txt"
+            k = (1 ^ 5, 2 ^ 6, 3 ^ 7, 4 ^ 8)
+            at_enc = c.base64_url_encode(c.encrypt_attr({"n": "test_file.txt"}, k))
+            mock_unauth_api_req.return_value = {
+                "g": "https://g.api.mega.co.nz/test",
+                "s": 2048,
+                "at": at_enc,
+            }
+
+            info = _mega_py_fetch_info(listener, None, None)
+            self.assertFalse(info["is_folder"])
+            self.assertEqual(info["file_name"], "test_file.txt")
+            self.assertEqual(info["file_size"], 2048)
 
 
 if __name__ == "__main__":
