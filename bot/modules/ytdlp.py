@@ -153,7 +153,7 @@ class YtSelection:
             if format_dict is not None:
                 for item in format_dict:
                     format_id = item.get("format_id")
-                    if not format_id:
+                    if not format_id or item.get("ext") == "mhtml" or item.get("container") == "mhtml":
                         continue
 
                     size = item.get("filesize") or item.get("filesize_approx") or 0
@@ -175,10 +175,7 @@ class YtSelection:
                         ext = item.get("ext") or "mp4"
                         fps = item["fps"] if item.get("fps") else ""
                         b_name = f"{height}p{fps}-{ext}"
-                        ba_ext = (
-                            "[ext=m4a]" if self._is_m4a and ext == "mp4" else ""
-                        )
-                        v_format = f"{format_id}+ba{ba_ext}/b[height=?{height}]"
+                        v_format = f"{format_id}+ba/b"
                     else:
                         continue
 
