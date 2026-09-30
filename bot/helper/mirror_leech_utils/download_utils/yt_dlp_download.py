@@ -186,25 +186,32 @@ class YoutubeDLHelper:
                 ]
             ):
                 fallback_clients = [
+                    ["tv", "mweb"],
+                    ["ios", "tv"],
+                    ["android_vr"],
+                    ["tv_embedded"],
                     ["android", "ios", "web"],
-                    ["mweb", "tv"],
-                    ["android_creator", "web_creator"],
                 ]
                 for clients in fallback_clients:
-                    retry_opts = dict(opts)
-                    extractor_args = retry_opts.get("extractor_args", {})
-                    yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
-                    yt_args["player_client"] = clients
-                    retry_opts["extractor_args"] = {"youtube": yt_args}
-                    if "cookiefile" in retry_opts and "reloaded" in err_msg.lower():
-                        retry_opts.pop("cookiefile", None)
-                    try:
-                        with YoutubeDL(retry_opts) as ydl:
-                            result = ydl.extract_info(self._listener.link, download=False)
-                            if result:
-                                break
-                    except Exception as retry_err:
-                        LOGGER.warning(f"Meta extraction fallback failed: {retry_err}")
+                    for bypass_cookie in (False, True):
+                        retry_opts = dict(opts)
+                        extractor_args = retry_opts.get("extractor_args", {})
+                        yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
+                        yt_args["player_client"] = clients
+                        retry_opts["extractor_args"] = {"youtube": yt_args}
+                        if bypass_cookie and "cookiefile" in retry_opts:
+                            retry_opts.pop("cookiefile", None)
+                        try:
+                            with YoutubeDL(retry_opts) as ydl:
+                                result = ydl.extract_info(self._listener.link, download=False)
+                                if result:
+                                    break
+                        except Exception as retry_err:
+                            LOGGER.warning(f"Meta extraction fallback failed: {retry_err}")
+                        if "cookiefile" not in opts:
+                            break
+                    if result:
+                        break
             if result is None:
                 return self._on_download_error(str(e))
             if self.is_playlist:
@@ -262,26 +269,33 @@ class YoutubeDLHelper:
                     ]
                 ):
                     fallback_clients = [
+                        ["tv", "mweb"],
+                        ["ios", "tv"],
+                        ["android_vr"],
+                        ["tv_embedded"],
                         ["android", "ios", "web"],
-                        ["mweb", "tv"],
-                        ["android_creator", "web_creator"],
                     ]
                     download_success = False
                     for clients in fallback_clients:
-                        retry_opts = dict(opts)
-                        extractor_args = retry_opts.get("extractor_args", {})
-                        yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
-                        yt_args["player_client"] = clients
-                        retry_opts["extractor_args"] = {"youtube": yt_args}
-                        if "cookiefile" in retry_opts and "reloaded" in err_msg.lower():
-                            retry_opts.pop("cookiefile", None)
-                        try:
-                            with YoutubeDL(retry_opts) as ydl:
-                                ydl.download([self._listener.link])
-                                download_success = True
+                        for bypass_cookie in (False, True):
+                            retry_opts = dict(opts)
+                            extractor_args = retry_opts.get("extractor_args", {})
+                            yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
+                            yt_args["player_client"] = clients
+                            retry_opts["extractor_args"] = {"youtube": yt_args}
+                            if bypass_cookie and "cookiefile" in retry_opts:
+                                retry_opts.pop("cookiefile", None)
+                            try:
+                                with YoutubeDL(retry_opts) as ydl:
+                                    ydl.download([self._listener.link])
+                                    download_success = True
+                                    break
+                            except Exception as retry_err:
+                                LOGGER.warning(f"Download fallback with player_client={clients} failed: {retry_err}")
+                            if "cookiefile" not in opts:
                                 break
-                        except Exception as retry_err:
-                            LOGGER.warning(f"Download fallback with player_client={clients} failed: {retry_err}")
+                        if download_success:
+                            break
                     if not download_success and not self._listener.is_cancelled:
                         self._on_download_error(str(e))
                     return
