@@ -165,9 +165,15 @@ class YoutubeDLHelper:
         async_to_sync(self._listener.on_download_error, error)
 
     def extract_meta_data(self, link, name):
+        from ....modules.ytdlp import find_node_executable
+        opts = dict(self.opts)
+        node_exe = find_node_executable()
+        if node_exe and "js_runtimes" not in opts:
+            opts["js_runtimes"] = {"node": {}}
+
         if link.startswith(("rtmp", "mms", "rstp", "rtmps")):
-            self.opts["external_downloader"] = "ffmpeg"
-        with YoutubeDL(self.opts) as ydl:
+            opts["external_downloader"] = "ffmpeg"
+        with YoutubeDL(opts) as ydl:
             try:
                 result = ydl.extract_info(link, download=False)
                 if result is None:
@@ -209,8 +215,14 @@ class YoutubeDLHelper:
                 self._listener.size = self._size
 
     def _download(self, link, path):
+        from ....modules.ytdlp import find_node_executable
+        opts = dict(self.opts)
+        node_exe = find_node_executable()
+        if node_exe and "js_runtimes" not in opts:
+            opts["js_runtimes"] = {"node": {}}
+
         try:
-            with YoutubeDL(self.opts) as ydl:
+            with YoutubeDL(opts) as ydl:
                 try:
                     ydl.download([link])
                 except DownloadError as e:

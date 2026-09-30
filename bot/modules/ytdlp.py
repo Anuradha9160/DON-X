@@ -252,8 +252,32 @@ class YtSelection:
         await edit_message(self._reply_to, msg, subbuttons)
 
 
+import shutil
+
+def find_node_executable():
+    node_bin = shutil.which("node") or shutil.which("nodejs") or shutil.which("deno") or shutil.which("bun")
+    if node_bin:
+        return node_bin
+    common_paths = [
+        "/usr/bin/node",
+        "/usr/local/bin/node",
+        "/usr/bin/nodejs",
+        "/usr/local/bin/deno",
+        "/usr/local/bin/bun",
+    ]
+    for path in common_paths:
+        if ospath.exists(path):
+            return path
+    return "node"
+
+
 def extract_info(link, options):
-    with YoutubeDL(options) as ydl:
+    opts = dict(options)
+    node_exe = find_node_executable()
+    if node_exe and "js_runtimes" not in opts:
+        opts["js_runtimes"] = {"node": {}}
+
+    with YoutubeDL(opts) as ydl:
         result = ydl.extract_info(link, download=False)
         if result is None:
             raise ValueError("Info result is None")
