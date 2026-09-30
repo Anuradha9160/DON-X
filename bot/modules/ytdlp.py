@@ -1,9 +1,6 @@
-from os import path as ospath
 from asyncio import Event, wait_for
 from ast import literal_eval
 from functools import partial
-import shutil
-from html import escape
 from time import time
 
 from niquests import AsyncSession
@@ -64,11 +61,7 @@ async def select_format(_, query, obj):
         obj.event.set()
     else:
         if data[1] == "sub":
-            b_data = obj.formats[data[2]]
-            if isinstance(b_data, dict) and "items" in b_data:
-                obj.qual = b_data["items"][data[3]][1]
-            else:
-                obj.qual = b_data[data[3]][1]
+            obj.qual = obj.formats[data[2]][data[3]][1]
         elif "|" in data[1]:
             obj.qual = obj.formats[data[1]]
         else:
@@ -111,46 +104,15 @@ class YtSelection:
         buttons = ButtonMaker()
         if "entries" in result:
             self._is_playlist = True
-            entries = [e for e in result.get("entries", []) if e]
-            available_combos = set()
-            available_heights = set()
-            for entry in entries:
-                if not isinstance(entry, dict):
-                    continue
-                for fmt in entry.get("formats", []):
-                    h = fmt.get("height")
-                    w = fmt.get("width")
-                    res_h = min(h, w) if (h and w and h > w) else h
-                    vcodec = fmt.get("vcodec")
-                    ext = fmt.get("ext") or "mp4"
-                    if res_h and isinstance(res_h, int) and res_h > 0:
-                        available_heights.add(res_h)
-                        if vcodec != "none" and vcodec is not None:
-                            available_combos.add((res_h, ext))
-
-            if available_combos:
-                sorted_combos = sorted(available_combos, key=lambda x: (x[0], x[1]))
-                for h, ext in sorted_combos:
-                    if ext == "mp4":
-                        video_format = f"bv*[height<={h}][ext=mp4]+ba[ext=m4a]/b[height<={h}]/bv*[height<={h}]+ba/b[height<={h}]"
-                    else:
-                        video_format = f"bv*[height<={h}][ext={ext}]+ba/b[height<={h}]/bv*[height<={h}]+ba/b[height<={h}]"
-                    b_data = f"{h}|{ext}"
-                    self.formats[b_data] = video_format
-                    buttons.data_button(f"{h}p-{ext}", f"ytq {b_data}")
-            elif available_heights:
-                for h in sorted(available_heights):
-                    video_format = f"bv*[height<={h}][ext=mp4]+ba[ext=m4a]/b[height<={h}]/bv*[height<={h}]+ba/b[height<={h}]"
-                    b_data = f"{h}|mp4"
-                    self.formats[b_data] = video_format
-                    buttons.data_button(f"{h}p-mp4", f"ytq {b_data}")
-            else:
-                for h in [360, 720, 1080]:
-                    video_format = f"bv*[height<={h}][ext=mp4]+ba[ext=m4a]/b[height<={h}]/bv*[height<={h}]+ba/b[height<={h}]"
-                    b_data = f"{h}|mp4"
-                    self.formats[b_data] = video_format
-                    buttons.data_button(f"{h}p-mp4", f"ytq {b_data}")
-
+            for i in ["144", "240", "360", "480", "720", "1080", "1440", "2160"]:
+                video_format = f"bv*[height<=?{i}][ext=mp4]+ba[ext=m4a]/b[height<=?{i}]"
+                b_data = f"{i}|mp4"
+                self.formats[b_data] = video_format
+                buttons.data_button(f"{i}-mp4", f"ytq {b_data}")
+                video_format = f"bv*[height<=?{i}][ext=webm]+ba/b[height<=?{i}]"
+                b_data = f"{i}|webm"
+                self.formats[b_data] = video_format
+                buttons.data_button(f"{i}-webm", f"ytq {b_data}")
             buttons.data_button("MP3", "ytq mp3")
             buttons.data_button("Audio Formats", "ytq audio")
             buttons.data_button("Best Videos", "ytq bv*+ba/b")
@@ -159,90 +121,51 @@ class YtSelection:
             self._main_buttons = buttons.build_menu(3)
             msg = f"Choose Playlist Videos Quality:\nTimeout: {get_readable_time(self._timeout - (time() - self._time))}"
         else:
-            format_dict = result.get("formats") or []
+            format_dict = result.get("formats")
+            if format_dict is not None:
+                for item in format_dict:
+                    if item.get("tbr"):
+                        format_id = item["format_id"]
 
-            video_groups = {}
-            audio_stream_groups = {}
+                        if item.get("filesize"):
+                            size = item["filesize"]
+                        elif item.get("filesize_approx"):
+                            size = item["filesize_approx"]
+                        else:
+                            size = 0
 
-            for item in format_dict:
-                format_id = str(item.get("format_id", ""))
-                if not format_id or format_id.startswith("sb") or item.get("ext") in ["mhtml", "none"]:
-                    continue
+                        if item.get("video_ext") == "none" and (
+                            item.get("resolution") == "audio only"
+                            or item.get("acodec") != "none"
+                        ):
+                            if item.get("audio_ext") == "m4a":
+                                self._is_m4a = True
+                            b_name = f"{item.get('acodec') or format_id}-{item['ext']}"
+                            v_format = format_id
+                        elif item.get("height"):
+                            height = item["height"]
+                            ext = item["ext"]
+                            fps = item["fps"] if item.get("fps") else ""
+                            b_name = f"{height}p{fps}-{ext}"
+                            ba_ext = (
+                                "[ext=m4a]" if self._is_m4a and ext == "mp4" else ""
+                            )
+                            v_format = f"{format_id}+ba{ba_ext}/b[height=?{height}]"
+                        else:
+                            continue
 
-                vcodec = item.get("vcodec")
-                acodec = item.get("acodec")
-                ext = item.get("ext") or "mp4"
+                        self.formats.setdefault(b_name, {})[f"{item['tbr']}"] = [
+                            size,
+                            v_format,
+                        ]
 
-                if (vcodec == "none" or vcodec is None) and (acodec == "none" or acodec is None):
-                    continue
-
-                size = item.get("filesize") or item.get("filesize_approx") or 0
-                height = item.get("height")
-                width = item.get("width")
-                res_h = min(height, width) if (height and width and height > width) else height
-
-                fps = item.get("fps")
-                fps_val = int(round(fps)) if fps and round(fps) > 0 else 0
-                fps_str = f"{fps_val}" if fps_val > 0 else ""
-
-                tbr = item.get("tbr") or ((item.get("vbr") or 0) + (item.get("abr") or 0))
-                tbr_val = int(round(tbr)) if tbr else 0
-                tbr_str = f"{tbr_val}" if tbr_val else format_id
-
-                # Video streams (video-only or combined)
-                if vcodec != "none" and vcodec is not None and res_h and res_h > 0:
-                    b_name = f"{res_h}p{fps_str}-{ext}"
-
-                    # If format already includes audio, use it directly with fallback; otherwise pair with bestaudio and fallback
-                    if acodec != "none" and acodec is not None:
-                        v_format = f"{format_id}/b[height<={res_h}][ext={ext}]/b[height<={res_h}]/b"
+                for b_name, tbr_dict in self.formats.items():
+                    if len(tbr_dict) == 1:
+                        tbr, v_list = next(iter(tbr_dict.items()))
+                        buttonName = f"{b_name} ({get_readable_file_size(v_list[0])})"
+                        buttons.data_button(buttonName, f"ytq sub {b_name} {tbr}")
                     else:
-                        v_format = f"{format_id}+ba/b/bv*[height<={res_h}][ext={ext}]+ba/b/bv*[height<={res_h}]+ba/b/b"
-
-                    group_key = (res_h, fps_val, ext, b_name)
-                    video_groups.setdefault(group_key, []).append((tbr_val, tbr_str, size, v_format))
-
-                # Audio streams (audio-only)
-                elif (vcodec == "none" or item.get("video_ext") == "none") and acodec != "none" and acodec is not None:
-                    abr = item.get("abr") or item.get("tbr") or 0
-                    abr_val = int(round(abr)) if abr else 0
-                    abr_str = f"{abr_val}" if abr_val else format_id
-                    b_name = f"{acodec}-{ext}" if acodec else f"audio-{ext}"
-                    v_format = f"{format_id}/ba/b"
-                    audio_stream_groups.setdefault(b_name, []).append((abr_val, abr_str, size, v_format))
-
-            grouped_formats = {}
-            # Sort video groups by height ascending, fps ascending, ext ascending
-            for (height, fps_val, ext, b_name), items_list in sorted(video_groups.items(), key=lambda x: (x[0][0], x[0][1], x[0][2])):
-                grouped_formats[b_name] = items_list
-
-            # Append audio stream groups
-            for b_name, items_list in audio_stream_groups.items():
-                grouped_formats[b_name] = items_list
-
-            for b_idx, (b_name, items_list) in enumerate(grouped_formats.items()):
-                b_key = str(b_idx)
-                items_dict = {}
-                for t_idx, (tbr_val, tbr_str, size, v_format) in enumerate(items_list):
-                    t_key = str(t_idx)
-                    items_dict[t_key] = [size, v_format, tbr_str]
-
-                self.formats[b_key] = {
-                    "name": b_name,
-                    "items": items_dict,
-                }
-
-                if len(items_dict) == 1:
-                    t_key, v_list = next(iter(items_dict.items()))
-                    button_name = (
-                        f"{b_name} ({get_readable_file_size(v_list[0])})"
-                        if v_list[0] > 0
-                        else f"{b_name}"
-                    )
-                    buttons.data_button(button_name, f"ytq sub {b_key} {t_key}")
-                else:
-                    buttons.data_button(b_name, f"ytq dict {b_key}")
-
+                        buttons.data_button(b_name, f"ytq dict {b_name}")
             buttons.data_button("MP3", "ytq mp3")
             buttons.data_button("Audio Formats", "ytq audio")
             buttons.data_button("Best Video", "ytq bv*+ba/b")
@@ -265,16 +188,12 @@ class YtSelection:
             msg = f"Choose Video Quality:\nTimeout: {get_readable_time(self._timeout - (time() - self._time))}"
         await edit_message(self._reply_to, msg, self._main_buttons)
 
-    async def qual_subbuttons(self, b_key):
+    async def qual_subbuttons(self, b_name):
         buttons = ButtonMaker()
-        b_data = self.formats[b_key]
-        b_name = b_data["name"] if isinstance(b_data, dict) and "name" in b_data else b_key
-        tbr_dict = b_data["items"] if isinstance(b_data, dict) and "items" in b_data else b_data
-        for t_key, d_data in tbr_dict.items():
-            tbr_disp = d_data[2] if len(d_data) > 2 else t_key
-            tbr_label = f"{tbr_disp}K" if str(tbr_disp).isdigit() else f"{tbr_disp}"
-            button_name = f"{tbr_label} ({get_readable_file_size(d_data[0])})"
-            buttons.data_button(button_name, f"ytq sub {b_key} {t_key}")
+        tbr_dict = self.formats[b_name]
+        for tbr, d_data in tbr_dict.items():
+            button_name = f"{tbr}K ({get_readable_file_size(d_data[0])})"
+            buttons.data_button(button_name, f"ytq sub {b_name} {tbr}")
         buttons.data_button("Back", "ytq back", "footer")
         buttons.data_button("Cancel", "ytq cancel", "footer")
         subbuttons = buttons.build_menu(2)
@@ -319,19 +238,8 @@ class YtSelection:
         await edit_message(self._reply_to, msg, subbuttons)
 
 
-def find_node_executable():
-    return (
-        shutil.which("node")
-        or shutil.which("node", path="/usr/local/bin:/usr/bin:/bin")
-    )
-
-
 def extract_info(link, options):
-    opts = options.copy()
-    node_path = find_node_executable()
-    if node_path and "js_runtimes" not in opts:
-        opts["js_runtimes"] = {"node": {"path": node_path}}
-    with YoutubeDL(opts) as ydl:
+    with YoutubeDL(options) as ydl:
         result = ydl.extract_info(link, download=False)
         if result is None:
             raise ValueError("Info result is None")
@@ -437,17 +345,13 @@ class YtDlp(TaskListener):
 
         try:
             if args["-ff"]:
-                if isinstance(args["-ff"], (set, list, tuple)):
+                if isinstance(args["-ff"], set):
                     self.ffmpeg_cmds = args["-ff"]
                 else:
-                    raw_val = str(args["-ff"]).strip()
-                    if raw_val.startswith(("[", "{", "(")):
-                        value = literal_eval(raw_val)
-                        if not isinstance(value, (dict, set, list, tuple)):
-                            raise ValueError("ffmpeg_cmds must be a dict/set/list/tuple")
-                        self.ffmpeg_cmds = value
-                    else:
-                        self.ffmpeg_cmds = raw_val
+                    value = literal_eval(args["-ff"])
+                    if not isinstance(value, (dict, set, list, tuple)):
+                        raise ValueError("ffmpeg_cmds must be a dict/set/list/tuple")
+                    self.ffmpeg_cmds = value
         except Exception as e:
             self.ffmpeg_cmds = None
             LOGGER.error(e)
@@ -573,25 +477,12 @@ class YtDlp(TaskListener):
 
         self._set_mode_engine()
 
-        cookie_to_use, cookie_err = get_cookie_file(self.user_dict, self.user_id)
-        if cookie_err and not cookie_to_use:
-            await send_message(self.message, f"{self.tag} {cookie_err}")
-            await self.remove_from_same_dir()
-            await delete_links(self.message)
-            return
+        cookie_to_use = get_cookie_file(self.user_dict)
+        LOGGER.info(
+            f"Using cookies.txt file: {cookie_to_use} | User ID : {self.user_id}"
+        )
 
-        if cookie_to_use and ospath.exists(cookie_to_use):
-            LOGGER.info(
-                f"Using cookies.txt file: {cookie_to_use} | User ID : {self.user_id}"
-            )
-
-        options = {
-            "usenetrc": True,
-        }
-        if cookie_to_use and ospath.exists(cookie_to_use):
-            options["cookiefile"] = cookie_to_use
-        else:
-            options.pop("cookiefile", None)
+        options = {"usenetrc": True, "cookiefile": cookie_to_use}
         if opt:
             for key, value in opt.items():
                 if key in ["postprocessors", "download_ranges"]:
@@ -603,14 +494,12 @@ class YtDlp(TaskListener):
                     else:
                         qual = value
                 options[key] = value
+        options["playlist_items"] = "0"
         try:
             result = await sync_to_async(extract_info, self.link, options)
         except Exception as e:
-            err_msg = escape(str(e))
-            await send_message(
-                self.message,
-                f"{self.tag} <b>YouTube Extraction Error:</b>\n{err_msg}",
-            )
+            msg = str(e).replace("<", " ").replace(">", " ")
+            await send_message(self.message, f"{self.tag} {msg}")
             await self.remove_from_same_dir()
             await delete_links(self.message)
             return
