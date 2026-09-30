@@ -176,26 +176,14 @@ class YoutubeDLHelper:
         except Exception as e:
             err_msg = str(e)
             if is_youtube_link(self._listener.link) and "reloaded" in err_msg.lower():
-                LOGGER.warning(f"YouTube reload error caught in meta extraction: {err_msg}. Retrying...")
-                fallback_clients = [
-                    ["tv", "mweb"],
-                    ["ios", "tv"],
-                    ["android_vr"],
-                    ["web"],
-                ]
-                for clients in fallback_clients:
-                    retry_opts = dict(opts)
-                    extractor_args = retry_opts.get("extractor_args", {})
-                    yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
-                    yt_args["player_client"] = clients
-                    retry_opts["extractor_args"] = {"youtube": yt_args}
-                    try:
-                        with YoutubeDL(retry_opts) as ydl:
-                            result = ydl.extract_info(self._listener.link, download=False)
-                            if result:
-                                break
-                    except Exception as retry_err:
-                        LOGGER.warning(f"Meta fallback failed: {retry_err}")
+                LOGGER.warning(f"YouTube reload error caught in meta extraction: {err_msg}. Retrying with webm format...")
+                retry_opts = dict(opts)
+                retry_opts["format"] = "bv*[ext=webm]+ba/b[ext=webm]/b"
+                try:
+                    with YoutubeDL(retry_opts) as ydl:
+                        result = ydl.extract_info(self._listener.link, download=False)
+                except Exception as retry_err:
+                    LOGGER.warning(f"Meta webm retry failed: {retry_err}")
             if result is None:
                 return self._on_download_error(str(e))
             if self.is_playlist:
@@ -243,31 +231,16 @@ class YoutubeDLHelper:
             except DownloadError as e:
                 err_msg = str(e)
                 if is_youtube_link(self._listener.link) and "reloaded" in err_msg.lower():
-                    LOGGER.warning(f"YouTube reload error caught during download: {err_msg}. Retrying...")
-                    fallback_clients = [
-                        ["tv", "mweb"],
-                        ["ios", "tv"],
-                        ["android_vr"],
-                        ["web"],
-                    ]
-                    download_success = False
-                    for clients in fallback_clients:
-                        retry_opts = dict(opts)
-                        extractor_args = retry_opts.get("extractor_args", {})
-                        yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
-                        yt_args["player_client"] = clients
-                        retry_opts["extractor_args"] = {"youtube": yt_args}
-                        try:
-                            with YoutubeDL(retry_opts) as ydl:
-                                ydl.download([self._listener.link])
-                                download_success = True
-                                break
-                        except Exception as retry_err:
-                            LOGGER.warning(f"Download fallback failed: {retry_err}")
-                    if not download_success and not self._listener.is_cancelled:
-                        self._on_download_error(str(e))
-                    return
-                elif not self._listener.is_cancelled:
+                    LOGGER.warning(f"YouTube reload error caught during download: {err_msg}. Retrying with webm format...")
+                    retry_opts = dict(opts)
+                    retry_opts["format"] = "bv*[ext=webm]+ba/b[ext=webm]/b"
+                    try:
+                        with YoutubeDL(retry_opts) as ydl:
+                            ydl.download([self._listener.link])
+                            return
+                    except Exception as retry_err:
+                        LOGGER.warning(f"Download webm retry failed: {retry_err}")
+                if not self._listener.is_cancelled:
                     self._on_download_error(str(e))
                 return
             if self.is_playlist and (

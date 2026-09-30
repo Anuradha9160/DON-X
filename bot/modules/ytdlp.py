@@ -303,26 +303,16 @@ def extract_info(link, options):
     except Exception as e:
         err_msg = str(e)
         if is_youtube_link(link) and "reloaded" in err_msg.lower():
-            LOGGER.warning(f"YouTube reload error caught: {err_msg}. Retrying extraction with fallback options...")
-            fallback_clients = [
-                ["tv", "mweb"],
-                ["ios", "tv"],
-                ["android_vr"],
-                ["web"],
-            ]
-            for clients in fallback_clients:
-                retry_opts = dict(opts)
-                extractor_args = retry_opts.get("extractor_args", {})
-                yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
-                yt_args["player_client"] = clients
-                retry_opts["extractor_args"] = {"youtube": yt_args}
-                try:
-                    with YoutubeDL(retry_opts) as ydl:
-                        result = ydl.extract_info(link, download=False)
-                        if result:
-                            return result
-                except Exception as retry_err:
-                    LOGGER.warning(f"Fallback extraction with player_client={clients} failed: {retry_err}")
+            LOGGER.warning(f"YouTube reload error caught: {err_msg}. Retrying with webm format preference...")
+            retry_opts = dict(opts)
+            retry_opts["format"] = "bv*[ext=webm]+ba/b[ext=webm]/b"
+            try:
+                with YoutubeDL(retry_opts) as ydl:
+                    result = ydl.extract_info(link, download=False)
+                    if result:
+                        return result
+            except Exception as retry_err:
+                LOGGER.warning(f"Webm retry failed: {retry_err}")
         raise
 
 
