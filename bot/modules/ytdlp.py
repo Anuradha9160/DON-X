@@ -119,11 +119,11 @@ class YtSelection:
         if "entries" in result:
             self._is_playlist = True
             for i in ["144", "240", "360", "480", "720", "1080", "1440", "2160"]:
-                video_format = f"bv*[height<=?{i}][ext=mp4]+ba[ext=m4a]/b[height<=?{i}]"
+                video_format = f"bv*[height<={i}][ext=mp4]+ba[ext=m4a]/bv*[height<={i}][ext=mp4]+ba/bv*[height<={i}]+ba/b[height<={i}]/b"
                 b_data = f"{i}|mp4"
                 self.formats[b_data] = video_format
                 buttons.data_button(f"{i}-mp4", f"ytq {b_data}")
-                video_format = f"bv*[height<=?{i}][ext=webm]+ba/b[height<=?{i}]"
+                video_format = f"bv*[height<={i}][ext=webm]+ba/bv*[height<={i}]+ba/b[height<={i}]/b"
                 b_data = f"{i}|webm"
                 self.formats[b_data] = video_format
                 buttons.data_button(f"{i}-webm", f"ytq {b_data}")
@@ -138,37 +138,40 @@ class YtSelection:
             format_dict = result.get("formats")
             if format_dict is not None:
                 for item in format_dict:
-                    if item.get("tbr"):
-                        format_id = item["format_id"]
+                    if item.get("tbr") or item.get("height") or item.get("vcodec") != "none":
+                        format_id = item.get("format_id", "")
+                        if not format_id or format_id.startswith("sb") or item.get("ext") in ["mhtml", "none"]:
+                            continue
 
-                        if item.get("filesize"):
-                            size = item["filesize"]
-                        elif item.get("filesize_approx"):
-                            size = item["filesize_approx"]
-                        else:
-                            size = 0
+                        size = item.get("filesize") or item.get("filesize_approx") or 0
 
                         if (
                             item.get("video_ext") == "none"
-                            and item.get("acodec") != "none"
-                        ):
+                            or item.get("vcodec") == "none"
+                        ) and item.get("acodec") != "none":
                             if item.get("audio_ext") == "m4a":
                                 self._is_m4a = True
-                            b_name = f"{item['acodec']}-{item['ext']}"
-                            v_format = format_id
+                            acodec = item.get("acodec", "audio")
+                            ext = item.get("ext", "m4a")
+                            b_name = f"{acodec}-{ext}"
+                            v_format = f"{format_id}/ba/b"
                         elif item.get("height"):
                             height = item["height"]
-                            ext = item["ext"]
+                            ext = item.get("ext", "mp4")
                             fps = item["fps"] if item.get("fps") else ""
-                            b_name = f"{height}p{fps}-{ext}"
-                            ba_ext = (
-                                "[ext=m4a]" if self._is_m4a and ext == "mp4" else ""
-                            )
-                            v_format = f"{format_id}+ba{ba_ext}/b[height=?{height}]"
+                            fps_str = f"{fps}" if fps else ""
+                            b_name = f"{height}p{fps_str}-{ext}"
+
+                            if item.get("acodec") != "none" and item.get("acodec") is not None:
+                                v_format = f"{format_id}/b[height<={height}][ext={ext}]/b[height<={height}]/b"
+                            else:
+                                ba_ext = "[ext=m4a]" if self._is_m4a and ext == "mp4" else ""
+                                v_format = f"{format_id}+ba{ba_ext}/{format_id}+ba/bv*[height<={height}][ext={ext}]+ba/bv*[height<={height}]+ba/b[height<={height}]/b"
                         else:
                             continue
 
-                        self.formats.setdefault(b_name, {})[f"{item['tbr']}"] = [
+                        tbr_key = f"{item.get('tbr', format_id)}"
+                        self.formats.setdefault(b_name, {})[tbr_key] = [
                             size,
                             v_format,
                         ]
@@ -176,7 +179,11 @@ class YtSelection:
                 for b_name, tbr_dict in self.formats.items():
                     if len(tbr_dict) == 1:
                         tbr, v_list = next(iter(tbr_dict.items()))
-                        buttonName = f"{b_name} ({get_readable_file_size(v_list[0])})"
+                        buttonName = (
+                            f"{b_name} ({get_readable_file_size(v_list[0])})"
+                            if v_list[0] > 0
+                            else f"{b_name}"
+                        )
                         buttons.data_button(buttonName, f"ytq sub {b_name} {tbr}")
                     else:
                         buttons.data_button(b_name, f"ytq dict {b_name}")
@@ -277,11 +284,51 @@ def extract_info(link, options):
     if node_exe and "js_runtimes" not in opts:
         opts["js_runtimes"] = {"node": {}}
 
-    with YoutubeDL(opts) as ydl:
-        result = ydl.extract_info(link, download=False)
-        if result is None:
-            raise ValueError("Info result is None")
-        return result
+    if is_youtube_link(link):
+        if "extractor_args" not in opts:
+            opts["extractor_args"] = {
+                "youtube": {
+                    "player_client": ["default", "web_embedded", "mweb", "ios", "web"],
+                }
+            }
+
+        client_fallbacks = [
+            ["default", "web_embedded", "mweb", "ios", "web"],
+            ["web_embedded", "mweb", "ios"],
+            ["ios", "mweb", "web"],
+            ["web", "default"],
+            ["mweb", "ios"],
+        ]
+
+        last_exc = None
+        for clients in client_fallbacks:
+            try:
+                curr_opts = dict(opts)
+                ext_args = dict(curr_opts.get("extractor_args", {}))
+                yt_args = dict(ext_args.get("youtube", {}))
+                yt_args["player_client"] = clients
+                ext_args["youtube"] = yt_args
+                curr_opts["extractor_args"] = ext_args
+
+                with YoutubeDL(curr_opts) as ydl:
+                    result = ydl.extract_info(link, download=False)
+                    if result is not None:
+                        return result
+            except Exception as e:
+                last_exc = e
+                err_str = str(e).lower()
+                if any(term in err_str for term in ["private", "copyright", "removed", "not found"]):
+                    raise e
+
+        if last_exc:
+            raise last_exc
+        raise ValueError("Info result is None")
+    else:
+        with YoutubeDL(opts) as ydl:
+            result = ydl.extract_info(link, download=False)
+            if result is None:
+                raise ValueError("Info result is None")
+            return result
 
 
 async def _mdisk(link, name):

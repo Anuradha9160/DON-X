@@ -6,6 +6,7 @@ from yt_dlp import YoutubeDL, DownloadError
 
 from .... import task_dict_lock, task_dict
 from ...ext_utils.bot_utils import sync_to_async, async_to_sync
+from ...ext_utils.links_utils import is_youtube_link
 from ...ext_utils.task_manager import (
     check_running_tasks,
     stop_duplicate_check,
@@ -20,16 +21,31 @@ LOGGER = getLogger(__name__)
 
 def get_cookie_file(user_dict=None, user_id=0):
     user_dict = user_dict or {}
+    def _is_valid(filepath):
+        return bool(filepath) and ospath.isfile(filepath) and ospath.getsize(filepath) > 0
+
     if not user_dict.get("USE_DEFAULT_COOKIE", False):
         usr_cookie = user_dict.get("USER_COOKIE_FILE", "")
-        if usr_cookie and ospath.exists(usr_cookie):
+        if _is_valid(usr_cookie):
             return usr_cookie, None
         if user_id:
-            user_cookie_path = f"cookies/{user_id}/cookies.txt"
-            if ospath.exists(user_cookie_path):
-                return user_cookie_path, None
-    if ospath.exists("cookies.txt"):
-        return "cookies.txt", None
+            for u_cookie in [
+                f"cookies/{user_id}/cookies.txt",
+                f"cookies/{user_id}/youtube.txt",
+                f"cookies/{user_id}/youtube_cookie.txt",
+            ]:
+                if _is_valid(u_cookie):
+                    return u_cookie, None
+
+    for owner_cookie in [
+        "cookies.txt",
+        "youtube.txt",
+        "cookies/cookies.txt",
+        "cookies/youtube.txt",
+    ]:
+        if _is_valid(owner_cookie):
+            return owner_cookie, None
+
     return None, None
 
 
@@ -170,6 +186,12 @@ class YoutubeDLHelper:
         node_exe = find_node_executable()
         if node_exe and "js_runtimes" not in opts:
             opts["js_runtimes"] = {"node": {}}
+        if is_youtube_link(link) and "extractor_args" not in opts:
+            opts["extractor_args"] = {
+                "youtube": {
+                    "player_client": ["default", "web_embedded", "mweb", "ios", "web"],
+                }
+            }
 
         if link.startswith(("rtmp", "mms", "rstp", "rtmps")):
             opts["external_downloader"] = "ffmpeg"
@@ -220,6 +242,12 @@ class YoutubeDLHelper:
         node_exe = find_node_executable()
         if node_exe and "js_runtimes" not in opts:
             opts["js_runtimes"] = {"node": {}}
+        if is_youtube_link(link) and "extractor_args" not in opts:
+            opts["extractor_args"] = {
+                "youtube": {
+                    "player_client": ["default", "web_embedded", "mweb", "ios", "web"],
+                }
+            }
 
         try:
             with YoutubeDL(opts) as ydl:
