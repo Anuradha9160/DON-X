@@ -175,7 +175,10 @@ class YtSelection:
                         ext = item.get("ext") or "mp4"
                         fps = item["fps"] if item.get("fps") else ""
                         b_name = f"{height}p{fps}-{ext}"
-                        v_format = f"{format_id}+ba/b"
+                        ba_ext = (
+                            "[ext=m4a]" if self._is_m4a and ext == "mp4" else ""
+                        )
+                        v_format = f"{format_id}+ba{ba_ext}/b[height=?{height}]"
                     else:
                         continue
 
