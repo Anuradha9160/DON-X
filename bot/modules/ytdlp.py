@@ -1,9 +1,8 @@
-from os import path as ospath
 from asyncio import Event, wait_for
 from ast import literal_eval
 from functools import partial
-from html import escape
 import shutil
+from html import escape
 from time import time
 
 from niquests import AsyncSession
@@ -331,44 +330,11 @@ def extract_info(link, options):
     node_path = find_node_executable()
     if node_path and "js_runtimes" not in opts:
         opts["js_runtimes"] = {"node": {"path": node_path}}
-    if "extractor_args" not in opts:
-        opts["extractor_args"] = {
-            "youtube": {
-                "player_client": ["default", "web_embedded", "mweb", "ios", "web"],
-            }
-        }
-
-    client_fallbacks = [
-        ["default", "web_embedded", "mweb", "ios", "web"],
-        ["web_embedded", "mweb", "ios"],
-        ["ios", "mweb", "web"],
-        ["web", "default"],
-        ["mweb", "ios"],
-    ]
-
-    last_exc = None
-    for clients in client_fallbacks:
-        try:
-            curr_opts = opts.copy()
-            ext_args = dict(curr_opts.get("extractor_args", {}))
-            yt_args = dict(ext_args.get("youtube", {}))
-            yt_args["player_client"] = clients
-            ext_args["youtube"] = yt_args
-            curr_opts["extractor_args"] = ext_args
-
-            with YoutubeDL(curr_opts) as ydl:
-                result = ydl.extract_info(link, download=False)
-                if result is not None:
-                    return result
-        except Exception as e:
-            last_exc = e
-            err_str = str(e).lower()
-            if any(term in err_str for term in ["private", "copyright", "removed", "not found"]):
-                raise e
-
-    if last_exc:
-        raise last_exc
-    raise ValueError("Info result is None")
+    with YoutubeDL(opts) as ydl:
+        result = ydl.extract_info(link, download=False)
+        if result is None:
+            raise ValueError("Info result is None")
+        return result
 
 
 async def _mdisk(link, name):
@@ -625,28 +591,17 @@ class YtDlp(TaskListener):
             options["cookiefile"] = cookie_to_use
         else:
             options.pop("cookiefile", None)
-
-        cmd_has_opt = bool(args["-opt"])
         if opt:
             for key, value in opt.items():
                 if key in ["postprocessors", "download_ranges"]:
                     continue
-                if key == "cookiefile":
-                    if value and ospath.exists(str(value)):
-                        options[key] = str(value)
-                    else:
-                        options.pop("cookiefile", None)
-                    continue
-                if key == "format" and not self.select and cmd_has_opt:
+                if key == "format" and not self.select:
                     if value.startswith("ba/b-"):
                         qual = value
                         continue
                     else:
                         qual = value
                 options[key] = value
-
-        if "cookiefile" in options and not options["cookiefile"]:
-            del options["cookiefile"]
         try:
             result = await sync_to_async(extract_info, self.link, options)
         except Exception as e:
