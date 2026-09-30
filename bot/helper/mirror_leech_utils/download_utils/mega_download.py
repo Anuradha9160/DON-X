@@ -342,7 +342,7 @@ def _mega_py_fetch_info(listener, email, password):
             folder_key_str = folder_key_str.split("/")[0]
 
         k_folder = c.base64_to_a32(folder_key_str)
-        nodes_res = m._api_request({"a": "f", "c": 1, "r": 1, "ca": 1}, params={"n": folder_id})
+        nodes_res = m._api_request({"a": "f", "c": 1, "r": 1, "ca": 1, "n": folder_id})
 
         if not isinstance(nodes_res, dict) or "f" not in nodes_res:
             raise RuntimeError("Failed to fetch node list for MEGA folder.")
