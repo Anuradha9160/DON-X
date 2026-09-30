@@ -167,13 +167,37 @@ class YoutubeDLHelper:
         if node_exe and "js_runtimes" not in opts:
             opts["js_runtimes"] = {"node": {}}
 
+        result = None
         try:
             with YoutubeDL(opts) as ydl:
                 result = ydl.extract_info(self._listener.link, download=False)
                 if result is None:
                     raise ValueError("Info result is None")
         except Exception as e:
-            return self._on_download_error(str(e))
+            err_msg = str(e)
+            if is_youtube_link(self._listener.link) and "reloaded" in err_msg.lower():
+                LOGGER.warning(f"YouTube reload error caught in meta extraction: {err_msg}. Retrying...")
+                fallback_clients = [
+                    ["tv", "mweb"],
+                    ["ios", "tv"],
+                    ["android_vr"],
+                    ["web"],
+                ]
+                for clients in fallback_clients:
+                    retry_opts = dict(opts)
+                    extractor_args = retry_opts.get("extractor_args", {})
+                    yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
+                    yt_args["player_client"] = clients
+                    retry_opts["extractor_args"] = {"youtube": yt_args}
+                    try:
+                        with YoutubeDL(retry_opts) as ydl:
+                            result = ydl.extract_info(self._listener.link, download=False)
+                            if result:
+                                break
+                    except Exception as retry_err:
+                        LOGGER.warning(f"Meta fallback failed: {retry_err}")
+            if result is None:
+                return self._on_download_error(str(e))
             if self.is_playlist:
                 self.playlist_count = result.get("playlist_count", 0)
             if "entries" in result:
@@ -213,13 +237,39 @@ class YoutubeDLHelper:
             opts["js_runtimes"] = {"node": {}}
 
         with suppress(Exception):
-            with YoutubeDL(opts) as ydl:
-                try:
+            try:
+                with YoutubeDL(opts) as ydl:
                     ydl.download([self._listener.link])
-                except DownloadError as e:
-                    if not self._listener.is_cancelled:
+            except DownloadError as e:
+                err_msg = str(e)
+                if is_youtube_link(self._listener.link) and "reloaded" in err_msg.lower():
+                    LOGGER.warning(f"YouTube reload error caught during download: {err_msg}. Retrying...")
+                    fallback_clients = [
+                        ["tv", "mweb"],
+                        ["ios", "tv"],
+                        ["android_vr"],
+                        ["web"],
+                    ]
+                    download_success = False
+                    for clients in fallback_clients:
+                        retry_opts = dict(opts)
+                        extractor_args = retry_opts.get("extractor_args", {})
+                        yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
+                        yt_args["player_client"] = clients
+                        retry_opts["extractor_args"] = {"youtube": yt_args}
+                        try:
+                            with YoutubeDL(retry_opts) as ydl:
+                                ydl.download([self._listener.link])
+                                download_success = True
+                                break
+                        except Exception as retry_err:
+                            LOGGER.warning(f"Download fallback failed: {retry_err}")
+                    if not download_success and not self._listener.is_cancelled:
                         self._on_download_error(str(e))
                     return
+                elif not self._listener.is_cancelled:
+                    self._on_download_error(str(e))
+                return
             if self.is_playlist and (
                 not ospath.exists(path) or len(listdir(path)) == 0
             ):

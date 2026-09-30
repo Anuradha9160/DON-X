@@ -297,11 +297,36 @@ def extract_info(link, options):
     if node_exe and "js_runtimes" not in opts:
         opts["js_runtimes"] = {"node": {}}
 
-    with YoutubeDL(opts) as ydl:
-        result = ydl.extract_info(link, download=False)
-        if result is None:
-            raise ValueError("Info result is None")
-        return result
+    try:
+        with YoutubeDL(opts) as ydl:
+            result = ydl.extract_info(link, download=False)
+            if result is None:
+                raise ValueError("Info result is None")
+            return result
+    except Exception as e:
+        err_msg = str(e)
+        if is_youtube_link(link) and "reloaded" in err_msg.lower():
+            LOGGER.warning(f"YouTube reload error caught: {err_msg}. Retrying extraction with fallback options...")
+            fallback_clients = [
+                ["tv", "mweb"],
+                ["ios", "tv"],
+                ["android_vr"],
+                ["web"],
+            ]
+            for clients in fallback_clients:
+                retry_opts = dict(opts)
+                extractor_args = retry_opts.get("extractor_args", {})
+                yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
+                yt_args["player_client"] = clients
+                retry_opts["extractor_args"] = {"youtube": yt_args}
+                try:
+                    with YoutubeDL(retry_opts) as ydl:
+                        result = ydl.extract_info(link, download=False)
+                        if result:
+                            return result
+                except Exception as retry_err:
+                    LOGGER.warning(f"Fallback extraction with player_client={clients} failed: {retry_err}")
+        raise
 
 
 async def _mdisk(link, name):
