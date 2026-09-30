@@ -23,6 +23,7 @@ from ..helper.ext_utils.status_utils import get_readable_file_size, get_readable
 from ..helper.listeners.task_listener import TaskListener
 from ..helper.mirror_leech_utils.download_utils.yt_dlp_download import (
     YoutubeDLHelper,
+    get_cookie_file,
 )
 from ..helper.telegram_helper.button_build import ButtonMaker
 from ..helper.telegram_helper.message_utils import (
@@ -484,7 +485,11 @@ class YtDlp(TaskListener):
 
         self._set_mode_engine()
 
-        options = {"usenetrc": True, "cookiefile": "cookies.txt"}
+        options = {"usenetrc": True}
+        cookie_to_use, _ = get_cookie_file(self.user_dict, self.user_id)
+        if cookie_to_use:
+            options["cookiefile"] = cookie_to_use
+            LOGGER.info(f"Using cookies file: {cookie_to_use} | User ID : {self.user_id}")
 
         if opt:
             yt_opt = opt.split("|") if isinstance(opt, str) else []

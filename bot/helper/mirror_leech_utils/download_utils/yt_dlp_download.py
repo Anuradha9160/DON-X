@@ -80,7 +80,6 @@ class YoutubeDLHelper:
             "progress_hooks": [self._on_download_progress],
             "logger": MyLogger(self, self._listener),
             "usenetrc": True,
-            "cookiefile": "cookies.txt",
             "allow_multiple_video_streams": True,
             "allow_multiple_audio_streams": True,
             "noprogress": True,
@@ -97,6 +96,12 @@ class YoutubeDLHelper:
                 "extractor": lambda n: 3,
             },
         }
+        user_dict = getattr(self._listener, "user_dict", {})
+        user_id = getattr(self._listener, "user_id", 0)
+        cookie_to_use, _ = get_cookie_file(user_dict, user_id)
+        if cookie_to_use:
+            self.opts["cookiefile"] = cookie_to_use
+            LOGGER.info(f"Using cookies file: {cookie_to_use} | User ID : {user_id}")
 
     @property
     def download_speed(self):
