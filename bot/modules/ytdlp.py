@@ -297,47 +297,11 @@ def extract_info(link, options):
     if node_exe and "js_runtimes" not in opts:
         opts["js_runtimes"] = {"node": {}}
 
-    try:
-        with YoutubeDL(opts) as ydl:
-            result = ydl.extract_info(link, download=False)
-            if result is None:
-                raise ValueError("Info result is None")
-            return result
-    except Exception as e:
-        err_msg = str(e)
-        if is_youtube_link(link) and any(
-            phrase in err_msg.lower()
-            for phrase in [
-                "reloaded",
-                "page needs to be reloaded",
-                "sabr-only",
-                "player api json",
-                "format is not available",
-            ]
-        ):
-            LOGGER.warning(f"YouTube extraction error caught: {err_msg}. Retrying with player_client fallback...")
-            fallback_clients = [
-                ["tv", "mweb"],
-                ["ios", "tv"],
-                ["android_vr"],
-                ["tv_embedded"],
-                ["android", "ios", "web"],
-            ]
-            for clients in fallback_clients:
-                retry_opts = dict(opts)
-                extractor_args = retry_opts.get("extractor_args", {})
-                yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
-                yt_args["player_client"] = clients
-                retry_opts["extractor_args"] = {"youtube": yt_args}
-
-                try:
-                    with YoutubeDL(retry_opts) as ydl:
-                        result = ydl.extract_info(link, download=False)
-                        if result:
-                            return result
-                except Exception as retry_err:
-                    LOGGER.warning(f"Fallback with player_client={clients} failed: {retry_err}")
-        raise
+    with YoutubeDL(opts) as ydl:
+        result = ydl.extract_info(link, download=False)
+        if result is None:
+            raise ValueError("Info result is None")
+        return result
 
 
 async def _mdisk(link, name):

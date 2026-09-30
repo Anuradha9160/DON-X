@@ -167,47 +167,13 @@ class YoutubeDLHelper:
         if node_exe and "js_runtimes" not in opts:
             opts["js_runtimes"] = {"node": {}}
 
-        result = None
         try:
             with YoutubeDL(opts) as ydl:
                 result = ydl.extract_info(self._listener.link, download=False)
                 if result is None:
                     raise ValueError("Info result is None")
         except Exception as e:
-            err_msg = str(e)
-            if is_youtube_link(self._listener.link) and any(
-                phrase in err_msg.lower()
-                for phrase in [
-                    "reloaded",
-                    "page needs to be reloaded",
-                    "sabr-only",
-                    "player api json",
-                    "format is not available",
-                ]
-            ):
-                fallback_clients = [
-                    ["tv", "mweb"],
-                    ["ios", "tv"],
-                    ["android_vr"],
-                    ["tv_embedded"],
-                    ["android", "ios", "web"],
-                ]
-                for clients in fallback_clients:
-                    retry_opts = dict(opts)
-                    extractor_args = retry_opts.get("extractor_args", {})
-                    yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
-                    yt_args["player_client"] = clients
-                    retry_opts["extractor_args"] = {"youtube": yt_args}
-
-                    try:
-                        with YoutubeDL(retry_opts) as ydl:
-                            result = ydl.extract_info(self._listener.link, download=False)
-                            if result:
-                                break
-                    except Exception as retry_err:
-                        LOGGER.warning(f"Meta extraction fallback failed: {retry_err}")
-            if result is None:
-                return self._on_download_error(str(e))
+            return self._on_download_error(str(e))
             if self.is_playlist:
                 self.playlist_count = result.get("playlist_count", 0)
             if "entries" in result:
@@ -247,49 +213,13 @@ class YoutubeDLHelper:
             opts["js_runtimes"] = {"node": {}}
 
         with suppress(Exception):
-            try:
-                with YoutubeDL(opts) as ydl:
+            with YoutubeDL(opts) as ydl:
+                try:
                     ydl.download([self._listener.link])
-            except DownloadError as e:
-                err_msg = str(e)
-                if is_youtube_link(self._listener.link) and any(
-                    phrase in err_msg.lower()
-                    for phrase in [
-                        "reloaded",
-                        "page needs to be reloaded",
-                        "sabr-only",
-                        "player api json",
-                        "format is not available",
-                    ]
-                ):
-                    fallback_clients = [
-                        ["tv", "mweb"],
-                        ["ios", "tv"],
-                        ["android_vr"],
-                        ["tv_embedded"],
-                        ["android", "ios", "web"],
-                    ]
-                    download_success = False
-                    for clients in fallback_clients:
-                        retry_opts = dict(opts)
-                        extractor_args = retry_opts.get("extractor_args", {})
-                        yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
-                        yt_args["player_client"] = clients
-                        retry_opts["extractor_args"] = {"youtube": yt_args}
-
-                        try:
-                            with YoutubeDL(retry_opts) as ydl:
-                                ydl.download([self._listener.link])
-                                download_success = True
-                                break
-                        except Exception as retry_err:
-                            LOGGER.warning(f"Download fallback with player_client={clients} failed: {retry_err}")
-                    if not download_success and not self._listener.is_cancelled:
+                except DownloadError as e:
+                    if not self._listener.is_cancelled:
                         self._on_download_error(str(e))
                     return
-                elif not self._listener.is_cancelled:
-                    self._on_download_error(str(e))
-                return
             if self.is_playlist and (
                 not ospath.exists(path) or len(listdir(path)) == 0
             ):
