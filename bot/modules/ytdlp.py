@@ -324,28 +324,19 @@ def extract_info(link, options):
                 ["android", "ios", "web"],
             ]
             for clients in fallback_clients:
-                for bypass_cookie in (False, True):
-                    retry_opts = dict(opts)
-                    extractor_args = retry_opts.get("extractor_args", {})
-                    yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
-                    yt_args["player_client"] = clients
-                    retry_opts["extractor_args"] = {"youtube": yt_args}
-                    if bypass_cookie and "cookiefile" in retry_opts:
-                        LOGGER.info(f"Retrying player_client={clients} without cookiefile...")
-                        retry_opts.pop("cookiefile", None)
-                    elif not bypass_cookie and "cookiefile" not in retry_opts:
-                        # Skip duplicate pass if no cookiefile was present
-                        pass
+                retry_opts = dict(opts)
+                extractor_args = retry_opts.get("extractor_args", {})
+                yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
+                yt_args["player_client"] = clients
+                retry_opts["extractor_args"] = {"youtube": yt_args}
 
-                    try:
-                        with YoutubeDL(retry_opts) as ydl:
-                            result = ydl.extract_info(link, download=False)
-                            if result:
-                                return result
-                    except Exception as retry_err:
-                        LOGGER.warning(f"Fallback with player_client={clients} (bypass_cookie={bypass_cookie}) failed: {retry_err}")
-                    if "cookiefile" not in opts:
-                        break
+                try:
+                    with YoutubeDL(retry_opts) as ydl:
+                        result = ydl.extract_info(link, download=False)
+                        if result:
+                            return result
+                except Exception as retry_err:
+                    LOGGER.warning(f"Fallback with player_client={clients} failed: {retry_err}")
         raise
 
 
