@@ -8,6 +8,7 @@ from yt_dlp import YoutubeDL, DownloadError
 from .... import task_dict_lock, task_dict
 from ....core.config_manager import BinConfig
 from ...ext_utils.bot_utils import sync_to_async, async_to_sync
+from ...ext_utils.links_utils import is_youtube_link
 from ...ext_utils.task_manager import (
     check_running_tasks,
     stop_duplicate_check,
@@ -20,12 +21,19 @@ from ..status_utils.yt_dlp_status import YtDlpStatus
 LOGGER = getLogger(__name__)
 
 
-def get_cookie_file(user_dict):
+def get_cookie_file(user_dict=None, user_id=0):
+    user_dict = user_dict or {}
     if not user_dict.get("USE_DEFAULT_COOKIE", False):
         usr_cookie = user_dict.get("USER_COOKIE_FILE", "")
         if usr_cookie and ospath.exists(usr_cookie):
-            return usr_cookie
-    return "cookies.txt"
+            return usr_cookie, None
+        if user_id:
+            user_cookie_path = f"cookies/{user_id}/cookies.txt"
+            if ospath.exists(user_cookie_path):
+                return user_cookie_path, None
+    if ospath.exists("cookies.txt"):
+        return "cookies.txt", None
+    return None, None
 
 
 class MyLogger:
@@ -88,8 +96,9 @@ class YoutubeDLHelper:
                 "extractor": lambda n: 3,
             },
         }
-        cookie_to_use = get_cookie_file(self._listener.user_dict)
-        self.opts["cookiefile"] = cookie_to_use
+        cookie_to_use, _ = get_cookie_file(self._listener.user_dict, self._listener.user_id)
+        if cookie_to_use:
+            self.opts["cookiefile"] = cookie_to_use
         LOGGER.info(
             f"Using cookies.txt file: {cookie_to_use} | User ID : {self._listener.user_id}"
         )
@@ -152,12 +161,51 @@ class YoutubeDLHelper:
         async_to_sync(self._listener.on_download_error, error)
 
     def _extract_meta_data(self):
-        with YoutubeDL(self.opts) as ydl:
-            try:
+        from ....modules.ytdlp import find_node_executable
+        opts = dict(self.opts)
+        node_exe = find_node_executable()
+        if node_exe and "js_runtimes" not in opts:
+            opts["js_runtimes"] = {"node": {}}
+
+        result = None
+        try:
+            with YoutubeDL(opts) as ydl:
                 result = ydl.extract_info(self._listener.link, download=False)
                 if result is None:
                     raise ValueError("Info result is None")
-            except Exception as e:
+        except Exception as e:
+            err_msg = str(e)
+            if is_youtube_link(self._listener.link) and any(
+                phrase in err_msg.lower()
+                for phrase in [
+                    "reloaded",
+                    "page needs to be reloaded",
+                    "sabr-only",
+                    "player api json",
+                    "format is not available",
+                ]
+            ):
+                fallback_clients = [
+                    ["android", "ios", "web"],
+                    ["mweb", "tv"],
+                    ["android_creator", "web_creator"],
+                ]
+                for clients in fallback_clients:
+                    retry_opts = dict(opts)
+                    extractor_args = retry_opts.get("extractor_args", {})
+                    yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
+                    yt_args["player_client"] = clients
+                    retry_opts["extractor_args"] = {"youtube": yt_args}
+                    if "cookiefile" in retry_opts and "reloaded" in err_msg.lower():
+                        retry_opts.pop("cookiefile", None)
+                    try:
+                        with YoutubeDL(retry_opts) as ydl:
+                            result = ydl.extract_info(self._listener.link, download=False)
+                            if result:
+                                break
+                    except Exception as retry_err:
+                        LOGGER.warning(f"Meta extraction fallback failed: {retry_err}")
+            if result is None:
                 return self._on_download_error(str(e))
             if self.is_playlist:
                 self.playlist_count = result.get("playlist_count", 0)
@@ -191,14 +239,55 @@ class YoutubeDLHelper:
                     self._ext = ext
 
     def _download(self, path):
+        from ....modules.ytdlp import find_node_executable
+        opts = dict(self.opts)
+        node_exe = find_node_executable()
+        if node_exe and "js_runtimes" not in opts:
+            opts["js_runtimes"] = {"node": {}}
+
         with suppress(Exception):
-            with YoutubeDL(self.opts) as ydl:
-                try:
+            try:
+                with YoutubeDL(opts) as ydl:
                     ydl.download([self._listener.link])
-                except DownloadError as e:
-                    if not self._listener.is_cancelled:
+            except DownloadError as e:
+                err_msg = str(e)
+                if is_youtube_link(self._listener.link) and any(
+                    phrase in err_msg.lower()
+                    for phrase in [
+                        "reloaded",
+                        "page needs to be reloaded",
+                        "sabr-only",
+                        "player api json",
+                        "format is not available",
+                    ]
+                ):
+                    fallback_clients = [
+                        ["android", "ios", "web"],
+                        ["mweb", "tv"],
+                        ["android_creator", "web_creator"],
+                    ]
+                    download_success = False
+                    for clients in fallback_clients:
+                        retry_opts = dict(opts)
+                        extractor_args = retry_opts.get("extractor_args", {})
+                        yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
+                        yt_args["player_client"] = clients
+                        retry_opts["extractor_args"] = {"youtube": yt_args}
+                        if "cookiefile" in retry_opts and "reloaded" in err_msg.lower():
+                            retry_opts.pop("cookiefile", None)
+                        try:
+                            with YoutubeDL(retry_opts) as ydl:
+                                ydl.download([self._listener.link])
+                                download_success = True
+                                break
+                        except Exception as retry_err:
+                            LOGGER.warning(f"Download fallback with player_client={clients} failed: {retry_err}")
+                    if not download_success and not self._listener.is_cancelled:
                         self._on_download_error(str(e))
                     return
+                elif not self._listener.is_cancelled:
+                    self._on_download_error(str(e))
+                return
             if self.is_playlist and (
                 not ospath.exists(path) or len(listdir(path)) == 0
             ):

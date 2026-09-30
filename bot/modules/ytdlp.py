@@ -1,6 +1,8 @@
 from asyncio import Event, wait_for
 from ast import literal_eval
 from functools import partial
+from os import path as ospath
+import shutil
 from time import time
 
 from niquests import AsyncSession
@@ -16,7 +18,7 @@ from ..helper.ext_utils.bot_utils import (
     new_task,
     sync_to_async,
 )
-from ..helper.ext_utils.links_utils import is_url
+from ..helper.ext_utils.links_utils import is_url, is_youtube_link
 from ..helper.ext_utils.task_manager import pre_task_check
 from ..helper.ext_utils.status_utils import get_readable_file_size, get_readable_time
 from ..helper.listeners.task_listener import TaskListener
@@ -61,7 +63,11 @@ async def select_format(_, query, obj):
         obj.event.set()
     else:
         if data[1] == "sub":
-            obj.qual = obj.formats[data[2]][data[3]][1]
+            fmt_entry = obj.formats[data[2]]
+            if isinstance(fmt_entry, dict) and "items" in fmt_entry:
+                obj.qual = fmt_entry["items"][data[3]][1]
+            else:
+                obj.qual = fmt_entry[data[3]][1]
         elif "|" in data[1]:
             obj.qual = obj.formats[data[1]]
         else:
@@ -104,15 +110,37 @@ class YtSelection:
         buttons = ButtonMaker()
         if "entries" in result:
             self._is_playlist = True
-            for i in ["144", "240", "360", "480", "720", "1080", "1440", "2160"]:
-                video_format = f"bv*[height<=?{i}][ext=mp4]+ba[ext=m4a]/b[height<=?{i}]"
-                b_data = f"{i}|mp4"
+            avail_res = set()
+            for entry in result.get("entries", []):
+                if not entry:
+                    continue
+                formats = entry.get("formats", [])
+                for f in formats:
+                    h = f.get("height")
+                    ext = f.get("ext") or f.get("container")
+                    if h:
+                        if ext in ("mp4", "m4a"):
+                            avail_res.add((str(h), "mp4"))
+                        elif ext in ("webm", "mkv"):
+                            avail_res.add((str(h), "webm"))
+                        else:
+                            avail_res.add((str(h), "mp4"))
+
+            if not avail_res:
+                for i in ["144", "240", "360", "480", "720", "1080", "1440", "2160"]:
+                    avail_res.add((i, "mp4"))
+                    avail_res.add((i, "webm"))
+
+            sorted_res = sorted(list(avail_res), key=lambda x: (int(x[0]), x[1]))
+            for i, ext in sorted_res:
+                if ext == "mp4":
+                    video_format = f"bv*[height<=?{i}][ext=mp4]+ba[ext=m4a]/b[height<=?{i}]"
+                else:
+                    video_format = f"bv*[height<=?{i}][ext=webm]+ba/b[height<=?{i}]"
+                b_data = f"{i}|{ext}"
                 self.formats[b_data] = video_format
-                buttons.data_button(f"{i}-mp4", f"ytq {b_data}")
-                video_format = f"bv*[height<=?{i}][ext=webm]+ba/b[height<=?{i}]"
-                b_data = f"{i}|webm"
-                self.formats[b_data] = video_format
-                buttons.data_button(f"{i}-webm", f"ytq {b_data}")
+                buttons.data_button(f"{i}-{ext}", f"ytq {b_data}")
+
             buttons.data_button("MP3", "ytq mp3")
             buttons.data_button("Audio Formats", "ytq audio")
             buttons.data_button("Best Videos", "ytq bv*+ba/b")
@@ -124,48 +152,53 @@ class YtSelection:
             format_dict = result.get("formats")
             if format_dict is not None:
                 for item in format_dict:
-                    if item.get("tbr"):
-                        format_id = item["format_id"]
+                    format_id = item.get("format_id")
+                    if not format_id:
+                        continue
 
-                        if item.get("filesize"):
-                            size = item["filesize"]
-                        elif item.get("filesize_approx"):
-                            size = item["filesize_approx"]
-                        else:
-                            size = 0
+                    size = item.get("filesize") or item.get("filesize_approx") or 0
+                    tbr = item.get("tbr") or item.get("abr") or item.get("vbr") or 0
+                    tbr_key = f"{tbr}"
 
-                        if item.get("video_ext") == "none" and (
-                            item.get("resolution") == "audio only"
-                            or item.get("acodec") != "none"
-                        ):
-                            if item.get("audio_ext") == "m4a":
-                                self._is_m4a = True
-                            b_name = f"{item.get('acodec') or format_id}-{item['ext']}"
-                            v_format = format_id
-                        elif item.get("height"):
-                            height = item["height"]
-                            ext = item["ext"]
-                            fps = item["fps"] if item.get("fps") else ""
-                            b_name = f"{height}p{fps}-{ext}"
-                            ba_ext = (
-                                "[ext=m4a]" if self._is_m4a and ext == "mp4" else ""
-                            )
-                            v_format = f"{format_id}+ba{ba_ext}/b[height=?{height}]"
-                        else:
-                            continue
-
-                        self.formats.setdefault(b_name, {})[f"{item['tbr']}"] = [
-                            size,
-                            v_format,
-                        ]
-
-                for b_name, tbr_dict in self.formats.items():
-                    if len(tbr_dict) == 1:
-                        tbr, v_list = next(iter(tbr_dict.items()))
-                        buttonName = f"{b_name} ({get_readable_file_size(v_list[0])})"
-                        buttons.data_button(buttonName, f"ytq sub {b_name} {tbr}")
+                    if item.get("video_ext") == "none" or item.get("vcodec") == "none" or (
+                        item.get("resolution") == "audio only"
+                        or item.get("acodec") != "none" and item.get("vcodec") in (None, "none")
+                    ):
+                        if item.get("audio_ext") == "m4a":
+                            self._is_m4a = True
+                        acodec = item.get("acodec") or format_id
+                        ext = item.get("ext") or item.get("audio_ext") or "m4a"
+                        b_name = f"{acodec}-{ext}"
+                        v_format = format_id
+                    elif item.get("height"):
+                        height = item["height"]
+                        ext = item.get("ext") or "mp4"
+                        fps = item["fps"] if item.get("fps") else ""
+                        b_name = f"{height}p{fps}-{ext}"
+                        ba_ext = (
+                            "[ext=m4a]" if self._is_m4a and ext == "mp4" else ""
+                        )
+                        v_format = f"{format_id}+ba{ba_ext}/b[height=?{height}]"
                     else:
-                        buttons.data_button(b_name, f"ytq dict {b_name}")
+                        continue
+
+                    if b_name not in self.formats:
+                        self.formats[b_name] = {
+                            "name": b_name,
+                            "items": {},
+                        }
+                    self.formats[b_name]["items"][tbr_key] = [size, v_format]
+                    self.formats[b_name][tbr_key] = [size, v_format]
+
+                for b_name, fmt_data in self.formats.items():
+                    if isinstance(fmt_data, dict):
+                        tbr_dict = fmt_data.get("items", {})
+                        if len(tbr_dict) == 1:
+                            tbr, v_list = next(iter(tbr_dict.items()))
+                            buttonName = f"{b_name} ({get_readable_file_size(v_list[0])})"
+                            buttons.data_button(buttonName, f"ytq sub {b_name} {tbr}")
+                        elif len(tbr_dict) > 1:
+                            buttons.data_button(b_name, f"ytq dict {b_name}")
             buttons.data_button("MP3", "ytq mp3")
             buttons.data_button("Audio Formats", "ytq audio")
             buttons.data_button("Best Video", "ytq bv*+ba/b")
@@ -190,8 +223,11 @@ class YtSelection:
 
     async def qual_subbuttons(self, b_name):
         buttons = ButtonMaker()
-        tbr_dict = self.formats[b_name]
+        fmt_data = self.formats[b_name]
+        tbr_dict = fmt_data.get("items", fmt_data) if isinstance(fmt_data, dict) else fmt_data
         for tbr, d_data in tbr_dict.items():
+            if tbr in ("name", "items"):
+                continue
             button_name = f"{tbr}K ({get_readable_file_size(d_data[0])})"
             buttons.data_button(button_name, f"ytq sub {b_name} {tbr}")
         buttons.data_button("Back", "ytq back", "footer")
@@ -238,12 +274,70 @@ class YtSelection:
         await edit_message(self._reply_to, msg, subbuttons)
 
 
+def find_node_executable():
+    node_bin = shutil.which("node") or shutil.which("nodejs") or shutil.which("deno") or shutil.which("bun")
+    if node_bin:
+        return node_bin
+    common_paths = [
+        "/usr/bin/node",
+        "/usr/local/bin/node",
+        "/usr/bin/nodejs",
+        "/usr/local/bin/deno",
+        "/usr/local/bin/bun",
+    ]
+    for path in common_paths:
+        if ospath.exists(path):
+            return path
+    return "node"
+
+
 def extract_info(link, options):
-    with YoutubeDL(options) as ydl:
-        result = ydl.extract_info(link, download=False)
-        if result is None:
-            raise ValueError("Info result is None")
-        return result
+    opts = dict(options)
+    node_exe = find_node_executable()
+    if node_exe and "js_runtimes" not in opts:
+        opts["js_runtimes"] = {"node": {}}
+
+    try:
+        with YoutubeDL(opts) as ydl:
+            result = ydl.extract_info(link, download=False)
+            if result is None:
+                raise ValueError("Info result is None")
+            return result
+    except Exception as e:
+        err_msg = str(e)
+        if is_youtube_link(link) and any(
+            phrase in err_msg.lower()
+            for phrase in [
+                "reloaded",
+                "page needs to be reloaded",
+                "sabr-only",
+                "player api json",
+                "format is not available",
+            ]
+        ):
+            LOGGER.warning(f"YouTube extraction error caught: {err_msg}. Retrying with player_client fallback...")
+            fallback_clients = [
+                ["android", "ios", "web"],
+                ["mweb", "tv"],
+                ["android_creator", "web_creator"],
+            ]
+            for clients in fallback_clients:
+                retry_opts = dict(opts)
+                extractor_args = retry_opts.get("extractor_args", {})
+                yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
+                yt_args["player_client"] = clients
+                retry_opts["extractor_args"] = {"youtube": yt_args}
+                if "cookiefile" in retry_opts and "reloaded" in err_msg.lower():
+                    LOGGER.info("Bypassing cookiefile for YouTube reload error fallback...")
+                    retry_opts.pop("cookiefile", None)
+                try:
+                    with YoutubeDL(retry_opts) as ydl:
+                        result = ydl.extract_info(link, download=False)
+                        if result:
+                            return result
+                except Exception as retry_err:
+                    LOGGER.warning(f"Fallback with player_client={clients} failed: {retry_err}")
+        raise
 
 
 async def _mdisk(link, name):
@@ -477,12 +571,14 @@ class YtDlp(TaskListener):
 
         self._set_mode_engine()
 
-        cookie_to_use = get_cookie_file(self.user_dict)
+        cookie_to_use, _ = get_cookie_file(self.user_dict, self.user_id)
         LOGGER.info(
             f"Using cookies.txt file: {cookie_to_use} | User ID : {self.user_id}"
         )
 
-        options = {"usenetrc": True, "cookiefile": cookie_to_use}
+        options = {"usenetrc": True}
+        if cookie_to_use:
+            options["cookiefile"] = cookie_to_use
         if opt:
             for key, value in opt.items():
                 if key in ["postprocessors", "download_ranges"]:
