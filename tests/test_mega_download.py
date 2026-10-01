@@ -215,6 +215,70 @@ class TestMegaDownload(unittest.IsolatedAsyncioTestCase):
             self.assertIn("data", kwargs)
             self.assertNotIn("folder_123", kwargs["data"])
 
+    def test_execute_mega_py_request_session_expired_recovery(self):
+        from unittest.mock import patch
+        from mega import Mega
+        from bot.helper.mirror_leech_utils.download_utils.mega_download import _execute_mega_py_request
+
+        m_expired = Mega()
+        m_expired._api_request = MagicMock(side_effect=RuntimeError("ESID, Invalid or expired user session, please re-login"))
+
+        m_new = Mega()
+        m_new._api_request = MagicMock(return_value={"g": "http://gfs.mega.co.nz/dl/recovered", "s": 100})
+
+        with patch.object(Mega, "login", return_value=m_new) as mock_login:
+            res, m_returned = _execute_mega_py_request(
+                m_expired, {"a": "g", "g": 1, "p": "test_pid"}, "user@test.com", "pass123"
+            )
+            mock_login.assert_called_once_with("user@test.com", "pass123")
+            self.assertEqual(res, {"g": "http://gfs.mega.co.nz/dl/recovered", "s": 100})
+            self.assertEqual(m_returned, m_new)
+
+    def test_download_file_chunks_with_url_refresh_and_base_downloaded(self):
+        from unittest.mock import patch
+        import tempfile
+        import os
+        from bot.helper.mirror_leech_utils.download_utils.mega_download import _download_file_chunks
+
+        status_helper = MagicMock()
+        status_helper.downloaded_bytes = 100
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dest_path = os.path.join(tmpdir, "test.bin")
+            k_str = b"\x00" * 16
+            iv = (0, 0)
+            meta_mac = (0, 0)
+
+            # Mock requests.get first to fail once, then succeed with refreshed url
+            refresh_called = False
+            def get_url_cb():
+                nonlocal refresh_called
+                refresh_called = True
+                return "http://mega.nz/dl/refreshed"
+
+            mock_res_fail = MagicMock()
+            mock_res_fail.raise_for_status.side_effect = Exception("HTTP 403 Forbidden")
+
+            mock_res_ok = MagicMock()
+            mock_res_ok.raise_for_status.return_value = None
+            mock_res_ok.iter_content.return_value = [b"\x00" * 16]
+
+            with patch("requests.get", side_effect=[mock_res_fail, mock_res_ok]):
+                res = _download_file_chunks(
+                    "http://mega.nz/dl/initial",
+                    16,
+                    dest_path,
+                    k_str,
+                    iv,
+                    meta_mac,
+                    status_helper=status_helper,
+                    get_url_cb=get_url_cb,
+                    base_downloaded=100,
+                )
+                self.assertTrue(res)
+                self.assertTrue(refresh_called)
+                self.assertEqual(status_helper.downloaded_bytes, 116)
+
 
 if __name__ == "__main__":
     unittest.main()

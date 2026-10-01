@@ -134,22 +134,51 @@ def _patch_mega_py():
         pass
 
 
-def _mega_py_download_sync(listener, path, email, password, status_helper=None):
+def _get_mega_session(email=None, password=None):
     _patch_mega_py()
     from mega import Mega
-    mega = Mega()
-    m = None
     if email and password:
         try:
-            m = mega.login(email, password)
+            return Mega().login(email, password)
         except Exception as e:
-            LOGGER.warning(f"Mega user login failed, falling back to unauthenticated: {e}")
-            m = None
-    if m is None:
-        m = mega
+            LOGGER.warning(f"Mega user login failed, falling back to unauthenticated session: {e}")
+    return Mega()
 
-    downloaded_path = m.download_url(listener.link, dest_path=path)
-    return downloaded_path
+
+def _execute_mega_py_request(m, request_data, email=None, password=None):
+    from mega import Mega
+    try:
+        return m._api_request(request_data), m
+    except Exception as e:
+        err_str = str(e)
+        if any(err in err_str for err in ("EACCESS", "ESID", "Access violation", "Invalid or expired user session", "-15")):
+            LOGGER.warning(f"Mega session error ({e}). Attempting session refresh/fallback...")
+            if email and password:
+                try:
+                    new_m = Mega().login(email, password)
+                    res = new_m._api_request(request_data)
+                    return res, new_m
+                except Exception as login_err:
+                    LOGGER.warning(f"Re-login failed ({login_err}), falling back to unauthenticated session...")
+            unauth_m = Mega()
+            res = unauth_m._api_request(request_data)
+            return res, unauth_m
+        raise e
+
+
+def _mega_py_download_sync(listener, path, email, password, status_helper=None):
+    _patch_mega_py()
+    m = _get_mega_session(email, password)
+    try:
+        downloaded_path = m.download_url(listener.link, dest_path=path)
+        return downloaded_path
+    except Exception as e:
+        err_str = str(e)
+        if any(err in err_str for err in ("EACCESS", "ESID", "Access violation", "Invalid or expired user session", "-15")):
+            LOGGER.warning(f"Mega download_url session error ({e}), retrying unauthenticated...")
+            from mega import Mega
+            return Mega().download_url(listener.link, dest_path=path)
+        raise e
 
 
 class MegaPyStatusHelper:
@@ -221,6 +250,8 @@ def _download_file_chunks(
     status_helper=None,
     listener=None,
     max_retries=5,
+    get_url_cb=None,
+    base_downloaded=0,
 ):
     import requests
     from time import time
@@ -231,7 +262,7 @@ def _download_file_chunks(
     downloaded = 0
     start_time = time()
     last_update_time = time()
-    last_bytes = 0
+    last_bytes = status_helper.downloaded_bytes if status_helper else 0
 
     if os.path.exists(dest_path):
         try:
@@ -246,7 +277,12 @@ def _download_file_chunks(
         except OSError:
             downloaded = 0
 
+    if status_helper:
+        status_helper.downloaded_bytes = base_downloaded + downloaded
+
     initial_ctr = ((iv[0] << 32) + iv[1]) << 64
+    current_url = file_url
+
     for attempt in range(max_retries):
         if listener and getattr(listener, "is_cancelled", False):
             return False
@@ -256,7 +292,7 @@ def _download_file_chunks(
             headers["Range"] = f"bytes={downloaded}-"
 
         try:
-            res = requests.get(file_url, headers=headers, stream=True, timeout=30)
+            res = requests.get(current_url, headers=headers, stream=True, timeout=30)
             res.raise_for_status()
 
             ctr_val = initial_ctr + (downloaded // 16)
@@ -280,7 +316,7 @@ def _download_file_chunks(
                     downloaded += chunk_len
 
                     if status_helper:
-                        status_helper.downloaded_bytes += chunk_len
+                        status_helper.downloaded_bytes = base_downloaded + downloaded
                         now = time()
                         elapsed = now - last_update_time
                         if elapsed >= 0.5:
@@ -290,6 +326,8 @@ def _download_file_chunks(
                             last_bytes = status_helper.downloaded_bytes
 
             if downloaded >= file_size:
+                if status_helper:
+                    status_helper.downloaded_bytes = base_downloaded + file_size
                 return True
 
         except Exception as e:
@@ -300,8 +338,16 @@ def _download_file_chunks(
                 if os.path.exists(dest_path):
                     try:
                         downloaded = os.path.getsize(dest_path)
+                        downloaded = (downloaded // 16) * 16
                     except OSError:
                         pass
+                if get_url_cb:
+                    try:
+                        new_url = get_url_cb()
+                        if new_url:
+                            current_url = new_url
+                    except Exception as refresh_err:
+                        LOGGER.warning(f"Failed to refresh URL for retry: {refresh_err}")
                 continue
             raise e
 
@@ -314,16 +360,7 @@ def _mega_py_fetch_info(listener, email, password):
     from mega import Mega
     import re
 
-    mega = Mega()
-    m = None
-    if email and password:
-        try:
-            m = mega.login(email, password)
-        except Exception as e:
-            LOGGER.warning(f"Mega user login failed, falling back to unauthenticated: {e}")
-            m = None
-    if m is None:
-        m = mega
+    m = _get_mega_session(email, password)
 
     url = listener.link
     is_folder = is_mega_folder_link(url)
@@ -335,17 +372,9 @@ def _mega_py_fetch_info(listener, email, password):
         file_key_str = parsed[1]
 
         file_key = c.base64_to_a32(file_key_str)
-        try:
-            file_data = m._api_request({"a": "g", "g": 1, "p": file_id})
-        except Exception as e:
-            err_str = str(e)
-            if any(err in err_str for err in ("EACCESS", "ESID", "Access violation", "Invalid or expired user session")):
-                LOGGER.warning(f"Session/access error with account ({e}), retrying unauthenticated...")
-                unauth_m = Mega()
-                file_data = unauth_m._api_request({"a": "g", "g": 1, "p": file_id})
-                m = unauth_m
-            else:
-                raise e
+        file_data, m = _execute_mega_py_request(
+            m, {"a": "g", "g": 1, "p": file_id}, email, password
+        )
 
         if "g" not in file_data:
             raise RuntimeError("MEGA file not accessible or link expired.")
@@ -403,17 +432,9 @@ def _mega_py_fetch_info(listener, email, password):
             folder_key_str = folder_key_str.split("/")[0]
 
         k_folder = c.base64_to_a32(folder_key_str)
-        try:
-            nodes_res = m._api_request({"a": "f", "c": 1, "r": 1, "ca": 1, "n": folder_id})
-        except Exception as e:
-            err_str = str(e)
-            if any(err in err_str for err in ("EACCESS", "ESID", "Access violation", "Invalid or expired user session")):
-                LOGGER.warning(f"Session/access error with account ({e}), retrying unauthenticated...")
-                unauth_m = Mega()
-                nodes_res = unauth_m._api_request({"a": "f", "c": 1, "r": 1, "ca": 1, "n": folder_id})
-                m = unauth_m
-            else:
-                raise e
+        nodes_res, m = _execute_mega_py_request(
+            m, {"a": "f", "c": 1, "r": 1, "ca": 1, "n": folder_id}, email, password
+        )
 
         if not isinstance(nodes_res, dict) or "f" not in nodes_res:
             raise RuntimeError("Failed to fetch node list for MEGA folder.")
@@ -522,6 +543,7 @@ def _mega_py_fetch_info(listener, email, password):
 
 def _mega_py_start_download(listener, path, info, status_helper):
     import mega.crypto as c
+    from mega import Mega
 
     m = info["m"]
     if not info["is_folder"]:
@@ -537,6 +559,7 @@ def _mega_py_start_download(listener, path, info, status_helper):
             info["meta_mac"],
             status_helper=status_helper,
             listener=listener,
+            base_downloaded=0,
         )
         return res
     else:
@@ -545,6 +568,8 @@ def _mega_py_start_download(listener, path, info, status_helper):
 
         folder_dest_dir = os.path.join(path, root_name)
         os.makedirs(folder_dest_dir, exist_ok=True)
+
+        current_accumulated_bytes = 0
 
         for file_obj, rel_subpath in file_list:
             if listener and getattr(listener, "is_cancelled", False):
@@ -555,21 +580,29 @@ def _mega_py_start_download(listener, path, info, status_helper):
 
             file_dest_path = os.path.join(file_dest_folder, file_obj["name"])
 
+            nonlocal_state = {"m": m}
+
+            def refresh_file_url():
+                try:
+                    curr_m = nonlocal_state["m"]
+                    data, new_m = _execute_mega_py_request(curr_m, {"a": "g", "g": 1, "n": file_obj["h"]})
+                    nonlocal_state["m"] = new_m
+                    return data.get("g")
+                except Exception as ex:
+                    LOGGER.warning(f"Error refreshing URL for {file_obj['name']}: {ex}")
+                    return None
+
             try:
-                file_data = m._api_request({"a": "g", "g": 1, "n": file_obj["h"]})
+                file_data, m = _execute_mega_py_request(m, {"a": "g", "g": 1, "n": file_obj["h"]})
+                nonlocal_state["m"] = m
             except Exception as e:
-                err_str = str(e)
-                if any(err in err_str for err in ("EACCESS", "ESID", "Access violation", "Invalid or expired user session")):
-                    LOGGER.warning(f"Session/access error with account for file node ({e}), retrying unauthenticated...")
-                    unauth_m = Mega()
-                    file_data = unauth_m._api_request({"a": "g", "g": 1, "n": file_obj["h"]})
-                    m = unauth_m
-                else:
-                    LOGGER.warning(f"Error fetching file URL for node {file_obj['name']}: {e}")
-                    continue
+                LOGGER.warning(f"Error fetching file URL for node {file_obj['name']}: {e}")
+                current_accumulated_bytes += file_obj["s"]
+                continue
 
             if "g" not in file_data:
                 LOGGER.warning(f"Could not get download URL for file {file_obj['name']}")
+                current_accumulated_bytes += file_obj["s"]
                 continue
 
             file_url = file_data["g"]
@@ -584,9 +617,13 @@ def _mega_py_start_download(listener, path, info, status_helper):
                 file_obj["meta_mac"],
                 status_helper=status_helper,
                 listener=listener,
+                get_url_cb=refresh_file_url,
+                base_downloaded=current_accumulated_bytes,
             )
             if not ok and getattr(listener, "is_cancelled", False):
                 return False
+
+            current_accumulated_bytes += file_obj["s"]
 
         return True
 
@@ -960,6 +997,7 @@ async def add_mega_download(listener, path):
             dl_listener._cancel_token = cancel_token
             dl_listener.error = None
             dl_listener.retryable_error = None
+            dl_listener.is_session_expired = False
             dl_listener._bytes_transferred = 0
             dl_listener._total_downloaded_bytes = 0
             dl_listener._caller_manages_completion = False
@@ -979,6 +1017,11 @@ async def add_mega_download(listener, path):
 
             if listener.is_cancelled or dl_listener.is_cancelled:
                 LOGGER.info("MegaDownload: transfer cancelled during attempt %s", attempt + 1)
+                return
+
+            if getattr(dl_listener, "is_session_expired", False):
+                LOGGER.warning("MegaDownload: session expired during download attempt %s, falling back to python downloader", attempt + 1)
+                await _download_mega_py(listener, path, mega_email, mega_password)
                 return
 
             if dl_listener.error and not dl_listener.retryable_error:

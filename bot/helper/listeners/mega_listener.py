@@ -516,6 +516,7 @@ class MegaAppListener(MegaListener):
         self.is_cancelled = False
         self.error = None
         self.retryable_error = None
+        self.is_session_expired = False
         self._suppress_export = False
         self._bytes_transferred = 0
         self._total_downloaded_bytes = 0
@@ -664,7 +665,12 @@ class MegaAppListener(MegaListener):
                 ):
                     return
                 self.error = f"{err_code} {err_str}"
-                LOGGER.error(f"Mega onRequestFinishError: {self.error}")
+                if err_code == getattr(MegaError, "API_ESID", -15) or err_code == -15 or "ESID" in err_str:
+                    self.is_session_expired = True
+                    self.retryable_error = self.error
+                    LOGGER.warning("Mega session expired (API_ESID / -15): %s", self.error)
+                else:
+                    LOGGER.error(f"Mega onRequestFinishError: {self.error}")
                 self._set_request_event()
                 self._set_transfer_event()
                 return
@@ -820,9 +826,11 @@ class MegaAppListener(MegaListener):
             LOGGER.info("Mega: onTransferFinish TARGET err=%s", err_code)
             if err_code != MegaError.API_OK:
                 self.error = f"{err_code} {err_str}"
-                if err_code == MegaError.API_EINCOMPLETE:
+                if err_code == MegaError.API_EINCOMPLETE or err_code == getattr(MegaError, "API_ESID", -15) or err_code == -15 or "ESID" in err_str:
+                    if err_code == getattr(MegaError, "API_ESID", -15) or err_code == -15 or "ESID" in err_str:
+                        self.is_session_expired = True
                     self.retryable_error = self.error
-                    LOGGER.warning("Mega transfer incomplete (API_EINCOMPLETE): %s", self.error)
+                    LOGGER.warning("Mega transfer incomplete/expired (%s): %s", err_code, self.error)
                     self._set_transfer_event()
                     return
                 LOGGER.error("Mega onTransferFinish error [%s]: %s", err_code, self.error)
@@ -1111,7 +1119,12 @@ class MegaFolderListener(MegaListener):
                 ):
                     return
                 self.error = f"{err_code} {err_str}"
-                LOGGER.error(f"MegaFolder onRequestFinishError: {self.error}")
+                if err_code == getattr(MegaError, "API_ESID", -15) or err_code == -15 or "ESID" in err_str:
+                    self.is_session_expired = True
+                    self.retryable_error = self.error
+                    LOGGER.warning("MegaFolder session expired (API_ESID / -15): %s", self.error)
+                else:
+                    LOGGER.error(f"MegaFolder onRequestFinishError: {self.error}")
                 self._set_request_event()
                 self._set_transfer_event()
                 return
@@ -1242,9 +1255,11 @@ class MegaFolderListener(MegaListener):
             LOGGER.info("MegaFolder: onTransferFinish TARGET err=%s transferred=%s total=%s speed=%s state=%s", err_code, transferred, total, speed, state)
             if err_code != MegaError.API_OK:
                 self.error = f"{err_code} {err_str}"
-                if err_code == MegaError.API_EINCOMPLETE:
+                if err_code == MegaError.API_EINCOMPLETE or err_code == getattr(MegaError, "API_ESID", -15) or err_code == -15 or "ESID" in err_str:
+                    if err_code == getattr(MegaError, "API_ESID", -15) or err_code == -15 or "ESID" in err_str:
+                        self.is_session_expired = True
                     self.retryable_error = self.error
-                    LOGGER.warning("MegaFolder transfer incomplete (API_EINCOMPLETE): %s", self.error)
+                    LOGGER.warning("MegaFolder transfer incomplete/expired (%s): %s", err_code, self.error)
                     self._set_transfer_event()
                     return
                 LOGGER.error("MegaFolder onTransferFinish error [%s]: %s", err_code, self.error)
