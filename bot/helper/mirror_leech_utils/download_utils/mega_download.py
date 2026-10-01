@@ -445,72 +445,92 @@ def _mega_py_fetch_info(listener, email, password):
         nodes_dict = {}
         children_map = {}
 
-        for n in nodes:
-            h = n.get("h")
-            p = n.get("p")
-            t = n.get("t", 0)
-            s = n.get("s", 0)
-            k_raw = n.get("k", "")
+        # Iteratively decrypt nodes so parent folder keys are resolved before child nodes
+        for _ in range(5):
+            for n in nodes:
+                h = n.get("h")
+                if h in nodes_dict:
+                    continue
+                p = n.get("p")
+                t = n.get("t", 0)
+                s = n.get("s", 0)
+                k_raw = n.get("k", "")
 
-            if ":" in k_raw:
-                k_enc = k_raw.split(":")[1]
-            else:
-                k_enc = k_raw
+                parent_node = nodes_dict.get(p)
+                candidate_keys = []
+                if parent_node and parent_node.get("raw_k_dec"):
+                    candidate_keys.append(parent_node["raw_k_dec"])
+                candidate_keys.append(k_folder)
 
-            if not k_enc:
-                continue
-
-            k_a32 = c.str_to_a32(c.base64_url_decode(k_enc))
-            k_dec = c.decrypt_key(k_a32, k_folder)
-
-            at_raw = n.get("a", n.get("at", ""))
-            at = c.base64_url_decode(at_raw) if at_raw else b""
-
-            if t == 0:
-                # File node
-                k = (
-                    k_dec[0] ^ k_dec[4],
-                    k_dec[1] ^ k_dec[5],
-                    k_dec[2] ^ k_dec[6],
-                    k_dec[3] ^ k_dec[7],
-                )
-                iv = k_dec[4:6] + (0, 0)
-                meta_mac = k_dec[6:8]
+                k_dec = None
                 attribs = {}
-                if at:
-                    try:
-                        attribs = c.decrypt_attr(at, k)
-                    except Exception as dec_err:
-                        LOGGER.warning(f"Failed to decrypt file attributes for node {h}: {dec_err}")
-            else:
-                # Folder node
-                k = k_dec
-                iv = None
-                meta_mac = None
-                attribs = {}
-                if at:
-                    try:
-                        attribs = c.decrypt_attr(at, k_dec)
-                    except Exception as dec_err:
-                        LOGGER.warning(f"Failed to decrypt folder attributes for node {h}: {dec_err}")
 
-            name = attribs.get("n", f"node_{h}") if isinstance(attribs, dict) and attribs.get("n") else f"node_{h}"
+                if k_raw:
+                    for ck in candidate_keys:
+                        for pair in k_raw.split("/"):
+                            if ":" in pair:
+                                _, k_enc = pair.split(":", 1)
+                                try:
+                                    k_a32 = c.str_to_a32(c.base64_url_decode(k_enc))
+                                    kd = c.decrypt_key(k_a32, ck)
 
-            node_obj = {
-                "h": h,
-                "p": p,
-                "t": t,
-                "s": s,
-                "name": name,
-                "k": k,
-                "iv": iv,
-                "meta_mac": meta_mac,
-            }
-            nodes_dict[h] = node_obj
+                                    at_raw = n.get("a", n.get("at", ""))
+                                    at = c.base64_url_decode(at_raw) if at_raw else b""
+                                    if at:
+                                        if t == 0:
+                                            file_k = (
+                                                kd[0] ^ kd[4],
+                                                kd[1] ^ kd[5],
+                                                kd[2] ^ kd[6],
+                                                kd[3] ^ kd[7],
+                                            )
+                                            attr = c.decrypt_attr(at, file_k)
+                                        else:
+                                            attr = c.decrypt_attr(at, kd)
+                                        if isinstance(attr, dict) and attr.get("n"):
+                                            k_dec = kd
+                                            attribs = attr
+                                            break
+                                except Exception:
+                                    pass
+                        if k_dec:
+                            break
 
-            if p not in children_map:
-                children_map[p] = []
-            children_map[p].append(h)
+                if k_dec is None:
+                    continue
+
+                if t == 0:
+                    k = (
+                        k_dec[0] ^ k_dec[4],
+                        k_dec[1] ^ k_dec[5],
+                        k_dec[2] ^ k_dec[6],
+                        k_dec[3] ^ k_dec[7],
+                    )
+                    iv = k_dec[4:6] + (0, 0)
+                    meta_mac = k_dec[6:8]
+                else:
+                    k = k_dec
+                    iv = None
+                    meta_mac = None
+
+                name = attribs.get("n", f"node_{h}") if isinstance(attribs, dict) and attribs.get("n") else f"node_{h}"
+
+                node_obj = {
+                    "h": h,
+                    "p": p,
+                    "t": t,
+                    "s": s,
+                    "name": name,
+                    "k": k,
+                    "raw_k_dec": k_dec,
+                    "iv": iv,
+                    "meta_mac": meta_mac,
+                }
+                nodes_dict[h] = node_obj
+
+                if p not in children_map:
+                    children_map[p] = []
+                children_map[p].append(h)
 
         target_node = None
         if subfolder_handle and subfolder_handle in nodes_dict:

@@ -304,6 +304,48 @@ class TestMegaDownload(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(refresh_called)
                 self.assertEqual(status_helper.downloaded_bytes, 116)
 
+    def test_mega_py_fetch_info_nested_folder_decryption(self):
+        from unittest.mock import patch
+        from mega import Mega
+        from bot.helper.mirror_leech_utils.download_utils.mega_download import _mega_py_fetch_info
+
+        class DummyListener:
+            def __init__(self):
+                self.link = "https://mega.nz/folder/q3wC2aLY#u_BQd1aVz_JS-CDC11ZY2g"
+                self.name = ""
+                self.size = 0
+
+        listener = DummyListener()
+
+        # Mock nodes response containing multi-pair k values
+        mock_nodes = {
+            "f": [
+                {
+                    "h": "73xnAaJS",
+                    "p": "root",
+                    "t": 1,
+                    "a": "Kfnxaxv-2V2ijv7-p2wbnmphnkvTIIPZPxljt4FSXI8",
+                    "k": "73xnAaJS:0fOYSWm8l0KSvKLUrTbScA",
+                },
+                {
+                    "h": "Xj5EGShB",
+                    "p": "73xnAaJS",
+                    "t": 1,
+                    "a": "SeIwkt_6Qc-qHYej1OZtQlkis1VgzsZCSLgL6qpbq8c",
+                    "k": "Xj5EGShB:KpShdj1lFnHu0vko39WPVg/73xnAaJS:OvuW4wIr4srxEnkZCzUv4w",
+                },
+            ]
+        }
+
+        m_dummy = Mega()
+        m_dummy._api_request = MagicMock(return_value=mock_nodes)
+
+        with patch("bot.helper.mirror_leech_utils.download_utils.mega_download._get_mega_session", return_value=m_dummy):
+            info = _mega_py_fetch_info(listener, None, None)
+            self.assertTrue(info["is_folder"])
+            self.assertEqual(info["folder_id"], "q3wC2aLY")
+            self.assertIn("root_name", info)
+
 
 if __name__ == "__main__":
     unittest.main()
