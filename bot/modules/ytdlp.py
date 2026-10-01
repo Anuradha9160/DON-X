@@ -283,6 +283,31 @@ def setup_js_runtimes(opts):
                 opts["js_runtimes"] = {"node": {"path": node_exe}}
 
 
+def youtube_reload_fallbacks(opts):
+    """Yield option sets to retry a YouTube "page needs to be reloaded" failure.
+
+    The error is about the YouTube player/web response (stale cookies, a flagged
+    session or a client yt-dlp can't use), not the format, so vary the player
+    client and, as a last resort, drop the cookies.
+    """
+    yt_args = dict((opts.get("extractor_args") or {}).get("youtube") or {})
+
+    def build(clients, with_cookies=True):
+        o = dict(opts)
+        o["extractor_args"] = {
+            **(opts.get("extractor_args") or {}),
+            "youtube": {**yt_args, "player_client": clients},
+        }
+        if not with_cookies:
+            o.pop("cookiefile", None)
+        return o
+
+    yield build(["tv", "web_safari"])
+    yield build(["mweb"])
+    if opts.get("cookiefile"):
+        yield build(["tv", "web_safari"], with_cookies=False)
+
+
 def extract_info(link, options):
     opts = dict(options)
     setup_js_runtimes(opts)
@@ -294,18 +319,16 @@ def extract_info(link, options):
                 raise ValueError("Info result is None")
             return result
     except Exception as e:
-        err_msg = str(e)
-        if is_youtube_link(link) and "reloaded" in err_msg.lower():
-            LOGGER.warning(f"YouTube reload error caught: {err_msg}. Retrying with webm format preference...")
-            retry_opts = dict(opts)
-            retry_opts["format"] = "bv*[ext=webm]+ba/b[ext=webm]/b"
-            try:
-                with YoutubeDL(retry_opts) as ydl:
-                    result = ydl.extract_info(link, download=False)
+        if is_youtube_link(link) and "reloaded" in str(e).lower():
+            LOGGER.warning(f"YouTube reload error: {e}. Trying fallbacks...")
+            for retry_opts in youtube_reload_fallbacks(opts):
+                try:
+                    with YoutubeDL(retry_opts) as ydl:
+                        result = ydl.extract_info(link, download=False)
                     if result:
                         return result
-            except Exception as retry_err:
-                LOGGER.warning(f"Webm retry failed: {retry_err}")
+                except Exception as retry_err:
+                    LOGGER.warning(f"Fallback failed: {retry_err}")
         raise
 
 

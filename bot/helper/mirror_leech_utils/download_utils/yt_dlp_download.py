@@ -11,6 +11,7 @@ from ...ext_utils.task_manager import (
     stop_duplicate_check,
     limit_checker,
 )
+from ...ext_utils.links_utils import is_youtube_link
 from ...mirror_leech_utils.status_utils.queue_status import QueueStatus
 from ...telegram_helper.message_utils import send_status_message
 from ..status_utils.yt_dlp_status import YtDlpStatus
@@ -166,8 +167,7 @@ class YoutubeDLHelper:
         async_to_sync(self._listener.on_download_error, error)
 
     def extract_meta_data(self, link, name):
-        from ....modules.ytdlp import setup_js_runtimes
-        from ....ext_utils.links_utils import is_youtube_link
+        from ....modules.ytdlp import setup_js_runtimes, youtube_reload_fallbacks
         opts = dict(self.opts)
         setup_js_runtimes(opts)
 
@@ -175,83 +175,102 @@ class YoutubeDLHelper:
             opts["external_downloader"] = "ffmpeg"
 
         result = None
+        err = None
         try:
             with YoutubeDL(opts) as ydl:
                 result = ydl.extract_info(link, download=False)
                 if result is None:
                     raise ValueError("Info result is None")
         except Exception as e:
-            err_msg = str(e)
-            if is_youtube_link(link) and "reloaded" in err_msg.lower():
-                LOGGER.warning(f"YouTube reload error caught during metadata extraction: {err_msg}. Retrying with webm format...")
-                retry_opts = dict(opts)
-                retry_opts["format"] = "bv*[ext=webm]+ba/b[ext=webm]/b"
-                try:
-                    with YoutubeDL(retry_opts) as ydl:
-                        result = ydl.extract_info(link, download=False)
-                except Exception as retry_err:
-                    LOGGER.warning(f"Metadata webm retry failed: {retry_err}")
-            if result is None:
-                return self._on_download_error(str(e))
-            if self.is_playlist:
-                self.playlist_count = result.get("playlist_count", 0)
-            if "entries" in result:
-                self.name = name
-                for entry in result["entries"]:
-                    if not entry:
-                        continue
-                    elif "filesize_approx" in entry:
-                        self._size += entry.get("filesize_approx") or 0
-                    elif "filesize" in entry:
-                        self._size += entry.get("filesize") or 0
-                    if not self.name:
-                        outtmpl_ = "%(series,playlist_title,channel)s%(season_number& |)s%(season_number&S|)s%(season_number|)02d.%(ext)s"
-                        self.name, ext = ospath.splitext(
-                            ydl.prepare_filename(entry, outtmpl=outtmpl_)
-                        )
-                        if not self._ext:
-                            self._ext = ext
-                self._listener.name = self.name
-                self._listener.size = self._size
-            else:
-                outtmpl_ = "%(title,fulltitle,alt_title)s%(season_number& |)s%(season_number&S|)s%(season_number|)02d%(episode_number&E|)s%(episode_number|)02d%(height& |)s%(height|)s%(height&p|)s%(fps|)s%(fps&fps|)s%(tbr& |)s%(tbr|)d.%(ext)s"
-                realName = ydl.prepare_filename(result, outtmpl=outtmpl_)
-                ext = ospath.splitext(realName)[-1]
-                self.name = f"{name}{ext}" if name else realName
-                if not self._ext:
-                    self._ext = ext
-                if result.get("filesize"):
-                    self._size = result["filesize"]
-                elif result.get("filesize_approx"):
-                    self._size = result["filesize_approx"]
-                self._listener.name = self.name
-                self._listener.size = self._size
+            err = e
+            if is_youtube_link(link) and "reloaded" in str(e).lower():
+                LOGGER.warning(
+                    f"YouTube reload error during metadata extraction: {e}. Trying fallbacks..."
+                )
+                for retry_opts in youtube_reload_fallbacks(opts):
+                    try:
+                        with YoutubeDL(retry_opts) as ydl:
+                            result = ydl.extract_info(link, download=False)
+                        if result:
+                            # make the download reuse the settings that worked
+                            self.opts["extractor_args"] = retry_opts["extractor_args"]
+                            if "cookiefile" not in retry_opts:
+                                self.opts.pop("cookiefile", None)
+                            break
+                    except Exception as retry_err:
+                        LOGGER.warning(f"Metadata fallback failed: {retry_err}")
+        if result is None:
+            return self._on_download_error(str(err))
+        if self.is_playlist:
+            self.playlist_count = result.get("playlist_count", 0)
+        if "entries" in result:
+            self.name = name
+            for entry in result["entries"]:
+                if not entry:
+                    continue
+                elif "filesize_approx" in entry:
+                    self._size += entry.get("filesize_approx") or 0
+                elif "filesize" in entry:
+                    self._size += entry.get("filesize") or 0
+                if not self.name:
+                    outtmpl_ = "%(series,playlist_title,channel)s%(season_number& |)s%(season_number&S|)s%(season_number|)02d.%(ext)s"
+                    self.name, ext = ospath.splitext(
+                        ydl.prepare_filename(entry, outtmpl=outtmpl_)
+                    )
+                    if not self._ext:
+                        self._ext = ext
+            self._listener.name = self.name
+            self._listener.size = self._size
+        else:
+            outtmpl_ = "%(title,fulltitle,alt_title)s%(season_number& |)s%(season_number&S|)s%(season_number|)02d%(episode_number&E|)s%(episode_number|)02d%(height& |)s%(height|)s%(height&p|)s%(fps|)s%(fps&fps|)s%(tbr& |)s%(tbr|)d.%(ext)s"
+            realName = ydl.prepare_filename(result, outtmpl=outtmpl_)
+            ext = ospath.splitext(realName)[-1]
+            self.name = f"{name}{ext}" if name else realName
+            if not self._ext:
+                self._ext = ext
+            if result.get("filesize"):
+                self._size = result["filesize"]
+            elif result.get("filesize_approx"):
+                self._size = result["filesize_approx"]
+            self._listener.name = self.name
+            self._listener.size = self._size
+
 
     def _download(self, link, path):
-        from ....modules.ytdlp import setup_js_runtimes
-        from ....ext_utils.links_utils import is_youtube_link
+        from ....modules.ytdlp import setup_js_runtimes, youtube_reload_fallbacks
         opts = dict(self.opts)
         setup_js_runtimes(opts)
 
         try:
-            with YoutubeDL(opts) as ydl:
-                try:
+            err = None
+            try:
+                with YoutubeDL(opts) as ydl:
                     ydl.download([link])
-                except DownloadError as e:
-                    err_msg = str(e)
-                    if is_youtube_link(link) and "reloaded" in err_msg.lower():
-                        LOGGER.warning(f"YouTube reload error caught during download: {err_msg}. Retrying with webm format...")
-                        retry_opts = dict(opts)
-                        retry_opts["format"] = "bv*[ext=webm]+ba/b[ext=webm]/b"
+            except DownloadError as e:
+                err = e
+                if (
+                    is_youtube_link(link)
+                    and "reloaded" in str(e).lower()
+                    and not self._is_cancelled
+                    and not self._listener.is_cancelled
+                ):
+                    LOGGER.warning(
+                        f"YouTube reload error during download: {e}. Trying fallbacks..."
+                    )
+                    for retry_opts in youtube_reload_fallbacks(opts):
                         try:
                             with YoutubeDL(retry_opts) as ydl:
                                 ydl.download([link])
-                                return
+                            err = None
+                            break
+                        except ValueError:
+                            raise
                         except Exception as retry_err:
-                            LOGGER.warning(f"Download webm retry failed: {retry_err}")
-                    if not self._is_cancelled and not self._listener.is_cancelled:
-                        self._on_download_error(str(e))
-                    return
+                            LOGGER.warning(f"Download fallback failed: {retry_err}")
+            if err is not None:
+                if not self._is_cancelled and not self._listener.is_cancelled:
+                    self._on_download_error(str(err))
+                return
             if self.is_playlist and (
                 not ospath.exists(path) or len(listdir(path)) == 0
             ):
