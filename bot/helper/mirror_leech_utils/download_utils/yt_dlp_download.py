@@ -96,6 +96,11 @@ class YoutubeDLHelper:
                 "extractor": lambda n: 3,
             },
         }
+        if "extractor_args" not in self.opts:
+            self.opts["extractor_args"] = {}
+        self.opts["extractor_args"]["youtube"] = {
+            "player_client": ["default", "web_embedded", "web_safari", "-tv_downgraded"]
+        }
         if ospath.exists(ospath.expanduser("~/.netrc")):
             self.opts["usenetrc"] = True
         user_dict = getattr(self._listener, "user_dict", {})
@@ -167,7 +172,7 @@ class YoutubeDLHelper:
         async_to_sync(self._listener.on_download_error, error)
 
     def extract_meta_data(self, link, name):
-        from ....modules.ytdlp import setup_js_runtimes, youtube_reload_fallbacks
+        from ....modules.ytdlp import setup_js_runtimes
         opts = dict(self.opts)
         setup_js_runtimes(opts)
 
@@ -175,32 +180,13 @@ class YoutubeDLHelper:
             opts["external_downloader"] = "ffmpeg"
 
         result = None
-        err = None
         try:
             with YoutubeDL(opts) as ydl:
                 result = ydl.extract_info(link, download=False)
                 if result is None:
                     raise ValueError("Info result is None")
         except Exception as e:
-            err = e
-            if is_youtube_link(link) and "reloaded" in str(e).lower():
-                LOGGER.warning(
-                    f"YouTube reload error during metadata extraction: {e}. Trying fallbacks..."
-                )
-                for retry_opts in youtube_reload_fallbacks(opts):
-                    try:
-                        with YoutubeDL(retry_opts) as ydl:
-                            result = ydl.extract_info(link, download=False)
-                        if result:
-                            # make the download reuse the settings that worked
-                            self.opts["extractor_args"] = retry_opts["extractor_args"]
-                            if "cookiefile" not in retry_opts:
-                                self.opts.pop("cookiefile", None)
-                            break
-                    except Exception as retry_err:
-                        LOGGER.warning(f"Metadata fallback failed: {retry_err}")
-        if result is None:
-            return self._on_download_error(str(err))
+            return self._on_download_error(str(e))
         if self.is_playlist:
             self.playlist_count = result.get("playlist_count", 0)
         if "entries" in result:
@@ -237,39 +223,17 @@ class YoutubeDLHelper:
 
 
     def _download(self, link, path):
-        from ....modules.ytdlp import setup_js_runtimes, youtube_reload_fallbacks
+        from ....modules.ytdlp import setup_js_runtimes
         opts = dict(self.opts)
         setup_js_runtimes(opts)
 
         try:
-            err = None
             try:
                 with YoutubeDL(opts) as ydl:
                     ydl.download([link])
             except DownloadError as e:
-                err = e
-                if (
-                    is_youtube_link(link)
-                    and "reloaded" in str(e).lower()
-                    and not self._is_cancelled
-                    and not self._listener.is_cancelled
-                ):
-                    LOGGER.warning(
-                        f"YouTube reload error during download: {e}. Trying fallbacks..."
-                    )
-                    for retry_opts in youtube_reload_fallbacks(opts):
-                        try:
-                            with YoutubeDL(retry_opts) as ydl:
-                                ydl.download([link])
-                            err = None
-                            break
-                        except ValueError:
-                            raise
-                        except Exception as retry_err:
-                            LOGGER.warning(f"Download fallback failed: {retry_err}")
-            if err is not None:
                 if not self._is_cancelled and not self._listener.is_cancelled:
-                    self._on_download_error(str(err))
+                    self._on_download_error(str(e))
                 return
             if self.is_playlist and (
                 not ospath.exists(path) or len(listdir(path)) == 0
