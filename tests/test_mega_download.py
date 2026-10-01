@@ -215,6 +215,31 @@ class TestMegaDownload(unittest.IsolatedAsyncioTestCase):
             self.assertIn("data", kwargs)
             self.assertNotIn("folder_123", kwargs["data"])
 
+    def test_mega_py_api_request_folder_id(self):
+        from unittest.mock import patch
+        from mega import Mega
+        from bot.helper.mirror_leech_utils.download_utils.mega_download import _patch_mega_py
+
+        _patch_mega_py()
+        m = Mega()
+
+        with patch("requests.post") as mock_post:
+            mock_resp = MagicMock()
+            mock_resp.text = '[{"g": "http://gfs.mega.co.nz/dl/test"}]'
+            mock_post.return_value = mock_resp
+
+            # Call patched _api_request with file data containing 'folder_id'
+            res = m._api_request({"a": "g", "g": 1, "n": "node_123", "folder_id": "folder_456"})
+
+            # Verify 'folder_id' was moved to params 'n'
+            self.assertEqual(res, {"g": "http://gfs.mega.co.nz/dl/test"})
+            mock_post.assert_called_once()
+            _, kwargs = mock_post.call_args
+            self.assertIn("params", kwargs)
+            self.assertEqual(kwargs["params"].get("n"), "folder_456")
+            self.assertIn("data", kwargs)
+            self.assertNotIn("folder_456", kwargs["data"])
+
     def test_execute_mega_py_request_session_expired_recovery(self):
         from unittest.mock import patch
         from mega import Mega

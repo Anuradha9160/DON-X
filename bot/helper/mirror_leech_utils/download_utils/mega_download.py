@@ -87,8 +87,10 @@ def _patch_mega_py():
 
                 data_copy = data
                 if isinstance(data, dict):
-                    if data.get("a") == "f" and "n" in data:
-                        data_copy = dict(data)
+                    data_copy = dict(data)
+                    if "folder_id" in data_copy:
+                        req_params["n"] = data_copy.pop("folder_id")
+                    elif data_copy.get("a") == "f" and "n" in data_copy:
                         req_params["n"] = data_copy.pop("n")
                     data_list = [data_copy]
                 elif isinstance(data, list):
@@ -461,6 +463,9 @@ def _mega_py_fetch_info(listener, email, password):
             k_a32 = c.str_to_a32(c.base64_url_decode(k_enc))
             k_dec = c.decrypt_key(k_a32, k_folder)
 
+            at_raw = n.get("a", n.get("at", ""))
+            at = c.base64_url_decode(at_raw) if at_raw else b""
+
             if t == 0:
                 # File node
                 k = (
@@ -471,17 +476,25 @@ def _mega_py_fetch_info(listener, email, password):
                 )
                 iv = k_dec[4:6] + (0, 0)
                 meta_mac = k_dec[6:8]
-                at = c.base64_url_decode(n.get("at", ""))
-                attribs = c.decrypt_attr(at, k)
+                attribs = {}
+                if at:
+                    try:
+                        attribs = c.decrypt_attr(at, k)
+                    except Exception as dec_err:
+                        LOGGER.warning(f"Failed to decrypt file attributes for node {h}: {dec_err}")
             else:
                 # Folder node
                 k = k_dec
                 iv = None
                 meta_mac = None
-                at = c.base64_url_decode(n.get("at", ""))
-                attribs = c.decrypt_attr(at, k)
+                attribs = {}
+                if at:
+                    try:
+                        attribs = c.decrypt_attr(at, k_dec)
+                    except Exception as dec_err:
+                        LOGGER.warning(f"Failed to decrypt folder attributes for node {h}: {dec_err}")
 
-            name = attribs.get("n", f"node_{h}") if isinstance(attribs, dict) else f"node_{h}"
+            name = attribs.get("n", f"node_{h}") if isinstance(attribs, dict) and attribs.get("n") else f"node_{h}"
 
             node_obj = {
                 "h": h,
@@ -535,6 +548,7 @@ def _mega_py_fetch_info(listener, email, password):
         return {
             "is_folder": True,
             "m": m,
+            "folder_id": folder_id,
             "root_name": root_name,
             "file_list": file_list,
             "total_folder_size": total_folder_size,
@@ -581,11 +595,15 @@ def _mega_py_start_download(listener, path, info, status_helper):
             file_dest_path = os.path.join(file_dest_folder, file_obj["name"])
 
             nonlocal_state = {"m": m}
+            folder_id = info.get("folder_id")
+            req_data = {"a": "g", "g": 1, "n": file_obj["h"]}
+            if folder_id:
+                req_data["folder_id"] = folder_id
 
             def refresh_file_url():
                 try:
                     curr_m = nonlocal_state["m"]
-                    data, new_m = _execute_mega_py_request(curr_m, {"a": "g", "g": 1, "n": file_obj["h"]})
+                    data, new_m = _execute_mega_py_request(curr_m, dict(req_data))
                     nonlocal_state["m"] = new_m
                     return data.get("g")
                 except Exception as ex:
@@ -593,7 +611,7 @@ def _mega_py_start_download(listener, path, info, status_helper):
                     return None
 
             try:
-                file_data, m = _execute_mega_py_request(m, {"a": "g", "g": 1, "n": file_obj["h"]})
+                file_data, m = _execute_mega_py_request(m, dict(req_data))
                 nonlocal_state["m"] = m
             except Exception as e:
                 LOGGER.warning(f"Error fetching file URL for node {file_obj['name']}: {e}")
