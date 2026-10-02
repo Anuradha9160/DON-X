@@ -113,7 +113,6 @@ BOOL_VARS = [
     "DISABLE_SEED",
     "DISABLE_STREAM",
     "DISABLE_TORRENTS",
-    "DISABLE_YTDLP",
     "DISABLE_MEGA",
     "DISABLE_PLUGINS",
     "ENABLE_ENCODE",
@@ -174,7 +173,6 @@ DEFAULT_DESP = {
     "DISABLE_RSS": "Disable RSS feed monitoring. Default: False.",
     "DISABLE_SEARCH": "Disable torrent search plugins. Default: False.",
     "DISABLE_STREAM": "Disable streaming. Default: False.",
-    "DISABLE_YTDLP": "Disable YouTube/YT-DLP downloads. Default: False.",
     "ENABLE_ENCODE": "Enable or disable global FFmpeg video encoding pipeline.",
     "ENABLE_COMPRESS": "Enable or disable global FFmpeg video compression pipeline.",
     "ENABLE_WATERMARK": "Enable or disable global FFmpeg watermark processing.",
@@ -228,7 +226,6 @@ DEFAULT_DESP = {
     "JD_LIMIT": "JDownloader limit in GB.",
     "NZB_LIMIT": "NZB limit in GB.",
     "SEEDR_LIMIT": "Seedr limit in GB.",
-    "YTDLP_LIMIT": "yt-dlp limit in GB.",
     "PLAYLIST_LIMIT": "Max playlist items.",
     "LEECH_LIMIT": "Leech limit in GB.",
     "EXTRACT_LIMIT": "Extract limit in GB.",
@@ -305,13 +302,8 @@ DEFAULT_DESP = {
     "USE_SERVICE_ACCOUNTS": "Use Service Accounts.",
     "WEB_ACCESS_PASSWORD": "Web proxy password.",
     "WEB_PINCODE": "Web file selection pin.",
-    "YT_DLP_OPTIONS": "yt-dlp options dict.",
-    "YT_DESP": "YouTube description.",
-    "YT_TAGS": "YouTube tags list.",
-    "YT_CATEGORY_ID": "YouTube category ID.",
     "PLUGIN_INDEXES": "Plugin index URLs.",
     "ENABLE_TELEMETRY": "Enable crash telemetry.",
-    "YT_PRIVACY_STATUS": "YouTube privacy status.",
 }
 
 PROTECTED_VARS = {
@@ -350,7 +342,6 @@ ONOFF_VARS = [
     "DISABLE_RSS",
     "DISABLE_SEARCH",
     "DISABLE_STREAM",
-    "DISABLE_YTDLP",
     "ENABLE_ENCODE",
     "ENABLE_COMPRESS",
     "ENABLE_WATERMARK",
@@ -366,7 +357,6 @@ LIMIT_VARS = [
     "JD_LIMIT",
     "NZB_LIMIT",
     "SEEDR_LIMIT",
-    "YTDLP_LIMIT",
     "PLAYLIST_LIMIT",
     "LEECH_LIMIT",
     "EXTRACT_LIMIT",
@@ -1541,7 +1531,6 @@ async def edit_bot_settings(client, query):
             "IMAGES",
             "SEARCH_PLUGINS",
             "USENET_SERVERS",
-            "YT_TAGS",
             "IMG_SOURCES",
         ):
             value = []

@@ -384,7 +384,6 @@ async def _runtime_reload():
         "bot.modules.stats",
         "bot.modules.status",
         "bot.modules.users_settings",
-        "bot.modules.ytdlp",
     ]
 
     for mod_name in modules_to_reload:

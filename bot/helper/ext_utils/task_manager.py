@@ -245,7 +245,7 @@ async def start_from_queued():
                         await start_dl_from_queued(mid)
 
 
-async def limit_checker(listener, yt_playlist=0):
+async def limit_checker(listener, playlist_count=0):
     LOGGER.info("Checking Size Limit...")
     if await CustomFilters.sudo("", listener.message):
         LOGGER.info("SUDO User. Skipping Size Limit...")
@@ -254,12 +254,12 @@ async def limit_checker(listener, yt_playlist=0):
     size = listener.size
 
     async def recurr_limits(limits):
-        nonlocal yt_playlist, size
+        nonlocal playlist_count, size
         limit_exceeded = ""
         for condition, attr, name in limits:
             if condition and (limit := getattr(Config, attr, 0)):
                 if attr == "PLAYLIST_LIMIT":
-                    if yt_playlist >= limit:
+                    if playlist_count >= limit:
                         limit_exceeded = f"┠ <b>{name} Limit Count</b> → {limit}"
                 else:
                     byte_limit = limit * 1024**3
@@ -281,8 +281,7 @@ async def limit_checker(listener, yt_playlist=0):
         (listener.is_nzb, "NZB_LIMIT", "SABnzbd"),
         (listener.is_seedr, "SEEDR_LIMIT", "Seedr"),
         (listener.is_rclone, "RC_DL_LIMIT", "RCloneDL"),
-        (listener.is_ytdlp, "YTDLP_LIMIT", "YT-DLP"),
-        (bool(yt_playlist), "PLAYLIST_LIMIT", "Playlist"),
+        (bool(playlist_count), "PLAYLIST_LIMIT", "Playlist"),
         (True, "DIRECT_LIMIT", "Direct"),
     ]
     limit_exceeded = await recurr_limits(limits)

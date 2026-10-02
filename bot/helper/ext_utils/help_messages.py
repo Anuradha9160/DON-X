@@ -9,15 +9,6 @@ mirror = """<b>Send a link along with command options:</b>
 
 <blockquote><b>Note:</b> Commands starting with <b>qb</b> are ONLY for torrent tasks.</blockquote>"""
 
-yt = """<b>Send a link along with command options:</b>
-
-<code>/cmd link</code>
-
-<b>Or reply to a link:</b>
-
-<code>/cmd -n "New Name" -z password -opt x:y|x1:y1</code>
-
-<blockquote>Check all supported <a href='https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md'>sites</a> or explore yt-dlp options in <a href='https://github.com/yt-dlp/yt-dlp/blob/master/yt_dlp/YoutubeDL.py#L212'>YoutubeDL.py</a>.</blockquote>"""
 
 clone = """<b>Clone Google Drive or Rclone path:</b>
 
@@ -148,12 +139,6 @@ qual = """<b>Quality Selector:</b> -s
 
 <blockquote>Opens interactive resolution and format selection menu.</blockquote>"""
 
-yt_opt = """<b>Custom yt-dlp Options:</b> -opt
-
-<code>/cmd link -opt {"format": "bv*+ba/b", "writesubtitles": True}</code>
-
-<blockquote>Pass key-value dictionary parameters accepted by yt-dlp Python API.</blockquote>"""
-
 convert_media = """<b>Convert Audio/Video Format:</b> -ca -cv
 
 <code>/cmd link -ca mp3 -cv mp4</code>
@@ -241,30 +226,6 @@ Apply custom title, artist, audio and subtitle language tags.
 <b>Example:</b>
 <code>/mirror link -meta title=Movie|artist={audiolang} Edition</code></blockquote>"""
 
-YT_HELP_DICT = {
-    "main": yt,
-    "New-Name": f"{new_name}\nNote: Don't add file extension",
-    "Zip": zip_arg,
-    "Quality": qual,
-    "Options": yt_opt,
-    "Multi-Link": multi_link,
-    "Same-Directory": same_dir,
-    "Thumb": thumb,
-    "Split-Size": split_size,
-    "Upload-Destination": upload,
-    "Rclone-Flags": rcf,
-    "Bulk": bulk,
-    "Sample-Video": sample_video,
-    "Screenshot": screenshot,
-    "Convert-Media": convert_media,
-    "Force-Start": force_start,
-    "Name-Swap": name_swap,
-    "TG-Transmission": transmission,
-    "Thumb-Layout": thumbnail_layout,
-    "Leech-Type": leech_as,
-    "FFmpeg-Cmds": ffmpeg_cmds,
-    "Metadata": metadata,
-}
 
 MIRROR_HELP_DICT = {
     "main": mirror,
@@ -338,11 +299,9 @@ def get_bot_commands():
     static_commands = {
         "Mirror": "[link/file] Mirror task to cloud destination",
         "QbMirror": "[magnet/torrent] Mirror using qBittorrent",
-        "Ytdl": "[link] Mirror YouTube and supported websites",
         "UpHoster": "[link/file] Upload to DDL hosters",
         "Leech": "[link/file] Leech task to Telegram",
         "QbLeech": "[magnet/torrent] Leech using qBittorrent",
-        "YtdlLeech": "[link] Leech YouTube and supported websites",
         "Clone": "[link] Copy files/folders to Google Drive or Rclone",
         "UserSet": "Manage personal user settings",
         "ForceStart": "[gid/reply] Force start queued task",
@@ -409,8 +368,6 @@ def get_help_string():
             help_lines.append(f"<b>{cmd_str}</b>: Mirror link via JDownloader.")
         elif key == "NzbMirror":
             help_lines.append(f"<b>{cmd_str}</b>: Mirror NZB via SABnzbd.")
-        elif key == "Ytdl":
-            help_lines.append(f"<b>{cmd_str}</b>: Mirror link via yt-dlp.")
         elif key == "UpHoster":
             help_lines.append(f"<b>{cmd_str}</b>: Upload to DDL Hoster services.")
         elif key == "Leech":
@@ -423,8 +380,6 @@ def get_help_string():
             help_lines.append(f"<b>{cmd_str}</b>: Leech NZB via SABnzbd.")
         elif key == "SeedrLink":
             help_lines.append(f"<b>{cmd_str}</b>: Get direct Seedr HTTP links.")
-        elif key == "YtdlLeech":
-            help_lines.append(f"<b>{cmd_str}</b>: Leech link via yt-dlp.")
         elif key == "Clone":
             help_lines.append(
                 f"<b>{cmd_str}</b> [drive_url]: Copy files/folders in Google Drive."

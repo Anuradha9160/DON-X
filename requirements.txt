@@ -11,7 +11,6 @@ cloudscraper
 dnspython
 fastapi
 feedparser
-google-api-python-client
 google-auth-oauthlib
 gunicorn
 langcodes
@@ -37,6 +36,5 @@ tenacity>=8.2.0
 uvicorn
 uvloop
 xattr
-yt-dlp[default]
 curl-cffi
 pycryptodome

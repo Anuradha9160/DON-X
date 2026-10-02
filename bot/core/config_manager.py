@@ -44,7 +44,6 @@ class Config:
     DISABLE_RSS = False
     DISABLE_SEARCH = False
     DISABLE_STREAM = False
-    DISABLE_YTDLP = False
     ENABLE_ENCODE = False
     ENABLE_COMPRESS = False
     ENABLE_WATERMARK = False
@@ -99,7 +98,6 @@ class Config:
     JD_LIMIT = 0
     NZB_LIMIT = 0
     SEEDR_LIMIT = 0
-    YTDLP_LIMIT = 0
     PLAYLIST_LIMIT = 0
     LEECH_LIMIT = 0
     EXTRACT_LIMIT = 0
@@ -179,11 +177,6 @@ class Config:
     ENABLE_TELEMETRY = True
     WEB_ACCESS_PASSWORD = ""
     WEB_PINCODE = True
-    YT_DLP_OPTIONS = {}
-    YT_DESP = "Uploaded with HTR-X bot"
-    YT_TAGS = ["telegram", "bot", "youtube"]
-    YT_CATEGORY_ID = 22
-    YT_PRIVACY_STATUS = "unlisted"
 
     @classmethod
     def get(cls, key):

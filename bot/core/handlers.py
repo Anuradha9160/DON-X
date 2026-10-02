@@ -431,20 +431,6 @@ async def add_handlers():
     )
     TgClient.bot.add_handler(
         MessageHandler(
-            ytdl,
-            filters=command(BotCommands.YtdlCommand, case_sensitive=True)
-            & CustomFilters.authorized,
-        )
-    )
-    TgClient.bot.add_handler(
-        MessageHandler(
-            ytdl_leech,
-            filters=command(BotCommands.YtdlLeechCommand, case_sensitive=True)
-            & CustomFilters.authorized,
-        )
-    )
-    TgClient.bot.add_handler(
-        MessageHandler(
             change_category,
             filters=command(BotCommands.CategorySelectCommand)
             & CustomFilters.authorized,

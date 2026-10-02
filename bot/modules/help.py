@@ -1,6 +1,5 @@
 from ..helper.ext_utils.bot_utils import COMMAND_USAGE, new_task
 from ..helper.ext_utils.help_messages import (
-    YT_HELP_DICT,
     MIRROR_HELP_DICT,
     CLONE_HELP_DICT,
 )
@@ -21,7 +20,7 @@ async def arg_usage(_, query):
     if data[1] == "close":
         return await delete_message(message, message.reply_to_message)
     pg_no = int(data[3])
-    key = {"m": "mirror", "y": "yt", "c": "clone"}.get(data[2], data[2])
+    key = {"m": "mirror", "c": "clone"}.get(data[2], data[2])
 
     if data[1] in ("nex", "pre", "back"):
         pages = COMMAND_USAGE.get(key)
@@ -33,7 +32,6 @@ async def arg_usage(_, query):
     elif data[1] in COMMAND_USAGE:
         info = {
             "mirror": ("m", MIRROR_HELP_DICT),
-            "yt": ("y", YT_HELP_DICT),
             "clone": ("c", CLONE_HELP_DICT),
         }
         back_key, help_dict = info[data[1]]

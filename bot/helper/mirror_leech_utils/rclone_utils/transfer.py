@@ -191,12 +191,12 @@ class RcloneTransferHelper:
                     "--drive-acknowledge-abuse",
                     "--drive-chunk-size",
                     "128M",
-                    "--tpslimit",
-                    "1",
-                    "--tpslimit-burst",
-                    "1",
+                    "--buffer-size",
+                    "64M",
+                    "--checkers",
+                    "16",
                     "--transfers",
-                    "1",
+                    "8",
                 )
             )
 
@@ -327,12 +327,14 @@ class RcloneTransferHelper:
         if remote_type == "drive" and not self._listener.rc_flags:
             cmd.extend(
                 (
-                    "--tpslimit",
-                    "1",
-                    "--tpslimit-burst",
-                    "1",
+                    "--drive-chunk-size",
+                    "128M",
+                    "--buffer-size",
+                    "64M",
+                    "--checkers",
+                    "16",
                     "--transfers",
-                    "1",
+                    "8",
                 )
             )
 
@@ -402,12 +404,14 @@ class RcloneTransferHelper:
             cmd.extend(
                 (
                     "--drive-acknowledge-abuse",
-                    "--tpslimit",
-                    "3",
-                    "--tpslimit-burst",
-                    "1",
+                    "--drive-chunk-size",
+                    "128M",
+                    "--buffer-size",
+                    "64M",
+                    "--checkers",
+                    "16",
                     "--transfers",
-                    "3",
+                    "8",
                 )
             )
 

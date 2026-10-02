@@ -54,7 +54,6 @@ commands = {
     ),
     "python": (["python3", "--version"], r"Python ([\d.]+)"),
     "rclone": ([BinConfig.RCLONE_NAME, "--version"], r"rclone v([\d.]+)"),
-    "yt-dlp": (["yt-dlp", "--version"], r"([\d.]+)"),
     "ffmpeg": (
         [BinConfig.FFMPEG_NAME, "-version"],
         r"ffmpeg version ([\d.]+(-\w+)?).*",
@@ -207,7 +206,6 @@ async def get_stats(event, key="home"):
 • <b>qBittorrent:</b> v{get_v("qBittorrent", "5.2.3")}
 • <b>SABnzbd+:</b> v{get_v("SABnzbd+", "4.2.2")}
 • <b>Rclone:</b> v{get_v("rclone", "1.75.1")}
-• <b>yt-dlp:</b> v{get_v("yt-dlp", "2026.08.19")}
 • <b>FFmpeg:</b> v{get_v("ffmpeg", "9.0.2")}
 • <b>7-Zip:</b> v{get_v("7z", "26.03")}
 • <b>Aiohttp:</b> v{get_v("aiohttp", "3.14.3")}
@@ -225,7 +223,6 @@ async def get_stats(event, key="home"):
 • <b>Clone Limit:</b> {Config.CLONE_LIMIT or "∞"} GB
 • <b>JDownloader Limit:</b> {Config.JD_LIMIT or "∞"} GB
 • <b>NZB Limit:</b> {Config.NZB_LIMIT or "∞"} GB
-• <b>YT-DLP Limit:</b> {Config.YTDLP_LIMIT or "∞"} GB
 • <b>Playlist Limit:</b> {Config.PLAYLIST_LIMIT or "∞"}
 • <b>Mega Limit:</b> {Config.MEGA_LIMIT or "∞"} GB
 • <b>Leech Limit:</b> {Config.LEECH_LIMIT or "∞"} GB

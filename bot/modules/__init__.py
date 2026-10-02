@@ -58,7 +58,6 @@ from .users_settings import (
 )
 from .addbot import add_bot_command, add_bot_cb
 from .request_ff import request_ff, reqff_callback
-from .ytdlp import ytdl, ytdl_leech
 from ..helper.ext_utils.track_manager import tm_callback
 
 __all__ = [
@@ -145,6 +144,4 @@ __all__ = [
     "add_bot_cb",
     "request_ff",
     "reqff_callback",
-    "ytdl",
-    "ytdl_leech",
 ]

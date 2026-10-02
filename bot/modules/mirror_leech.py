@@ -32,7 +32,6 @@ from ..helper.ext_utils.links_utils import (
     is_rclone_path,
     is_telegram_link,
     is_url,
-    is_youtube_link,
 )
 from ..helper.ext_utils.task_manager import pre_task_check
 from ..helper.listeners.task_listener import TaskListener
@@ -160,7 +159,6 @@ class Mirror(TaskListener):
             "-bt": False,
             "-ut": False,
             "-ad": False,
-            "-yt": False,
             "-seedr": False,
             "-ht": False,
             "-trackmanager": False,
@@ -249,7 +247,6 @@ class Mirror(TaskListener):
         self.user_trans = args["-ut"]
         self.is_alldebrid = args["-ad"]
         self.is_seedr = args["-seedr"] or self.is_seedr
-        self.is_yt = args["-yt"]
 
         user_auto_merge = self.user_dict.get("AUTO_MERGE", False) or (
             "AUTO_MERGE" not in self.user_dict and getattr(Config, "AUTO_MERGE", False)
@@ -567,22 +564,6 @@ class Mirror(TaskListener):
             ):
                 self.thumb = await create_thumb(reply_to, self.user_id)
 
-        if (is_youtube_link(self.link) or self.is_yt) and not (
-            self.is_seedr or self.is_jd or self.is_nzb or self.is_alldebrid
-        ):
-            from .ytdlp import YtDlp
-            bot_loop.create_task(
-                YtDlp(
-                    self.client,
-                    self.message,
-                    is_leech=self.is_leech,
-                    same_dir=self.same_dir,
-                    bulk=self.bulk,
-                    multi_tag=self.multi_tag,
-                    options=self.options,
-                ).new_event()
-            )
-            return
 
         self._set_mode_engine()
 

@@ -28,7 +28,6 @@ from .db_handler import database
 from .help_messages import (
     CLONE_HELP_DICT,
     MIRROR_HELP_DICT,
-    YT_HELP_DICT,
 )
 from .telegraph_helper import telegraph
 
@@ -146,7 +145,6 @@ def _build_command_usage(help_dict, command_key):
 
 def create_help_buttons():
     _build_command_usage(MIRROR_HELP_DICT, "mirror")
-    _build_command_usage(YT_HELP_DICT, "yt")
     _build_command_usage(CLONE_HELP_DICT, "clone")
 
 
@@ -248,7 +246,6 @@ def arg_parser(items, arg_base):
         "-med",
         "-ut",
         "-bt",
-        "-yt",
         "-ad",
         "-seedr",
         "-ht",
@@ -289,7 +286,6 @@ def arg_parser(items, arg_base):
                     "-med",
                     "-ut",
                     "-bt",
-                    "-yt",
                     "-ad",
                     "-ht",
                     "-trackmanager",

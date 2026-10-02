@@ -77,11 +77,9 @@ advanced_options = [
     "EXCLUDED_EXTENSIONS",
     "NAME_SWAP",
     "AUTO_RENAME_FORMAT",
-    "YT_DLP_OPTIONS",
     "UPLOAD_PATHS",
     "USER_COOKIE_FILE",
 ]
-yt_options = ["YT_DESP", "YT_TAGS", "YT_CATEGORY_ID", "YT_PRIVACY_STATUS"]
 mega_options = ["MEGA_EMAIL", "MEGA_PASSWORD"]
 seedr_options = ["SEEDR_EMAIL", "SEEDR_PASSWORD", "SEEDR_DELETE_FOLDER"]
 
@@ -176,11 +174,6 @@ user_settings_text = {
         "Format template for auto renaming media files.",
         "<blockquote>Send custom rename format template (e.g. <code>{TITLE} - {SEASON} {EPISODE} {QUALITY}</code>).\nPlaceholders: {TITLE}, {SEASON}, {EPISODE}, {QUALITY}, {YEAR}, {LANGUAGE}, {CODEC}, {AUDIO}, {GROUP}, {EXT}\n⏱️ <b>Time Left:</b> <code>60 sec</code></blockquote>",
     ),
-    "YT_DLP_OPTIONS": (
-        "Dict",
-        "Custom yt-dlp option dictionary.",
-        "<blockquote>Send yt-dlp options dictionary.\n⏱️ <b>Time Left:</b> <code>60 sec</code></blockquote>",
-    ),
     "FFMPEG_CMDS": (
         "Configured Language / Command keys",
         "Available FFmpeg command presets.",
@@ -223,29 +216,9 @@ user_settings_text = {
         "Subtitle stream metadata.",
         "<blockquote>Send subtitle metadata format: <code>key=value</code>\n⏱️ <b>Time Left:</b> <code>60 sec</code></blockquote>",
     ),
-    "YT_DESP": (
-        "String",
-        "Custom YouTube upload description.",
-        "<blockquote>Send custom YouTube description.\n⏱️ <b>Time Left:</b> <code>60 sec</code></blockquote>",
-    ),
-    "YT_TAGS": (
-        "Comma-separated list",
-        "Custom tags for YouTube uploads.",
-        "<blockquote>Send comma-separated YouTube tags.\n⏱️ <b>Time Left:</b> <code>60 sec</code></blockquote>",
-    ),
-    "YT_CATEGORY_ID": (
-        "Number",
-        "YouTube category ID.",
-        "<blockquote>Send YouTube category ID number.\n⏱️ <b>Time Left:</b> <code>60 sec</code></blockquote>",
-    ),
-    "YT_PRIVACY_STATUS": (
-        "public / private / unlisted",
-        "Privacy status for YouTube videos.",
-        "<blockquote>Send privacy status: public, private, or unlisted.\n⏱️ <b>Time Left:</b> <code>60 sec</code></blockquote>",
-    ),
     "USER_COOKIE_FILE": (
         "File",
-        "Cookies file for yt-dlp authentication.",
+        "Cookies file for general authentication.",
         "<blockquote>Send cookie file (cookies.txt).\n⏱️ <b>Time Left:</b> <code>60 sec</code></blockquote>",
     ),
     "GOFILE_TOKEN": (
@@ -543,7 +516,7 @@ async def get_user_settings(from_user, stype="main"):
 <blockquote>• <b>Name:</b> {user_name}
 • <b>Default Upload Engine:</b> <b>{du}</b>
 • <b>Token Credentials Mode:</b> <b>{tr}'s</b> token/config
-• <b>YT Cookie Source:</b> <b>{cookie_mode}</b></blockquote>"""
+• <b>Cookie Source:</b> <b>{cookie_mode}</b></blockquote>"""
 
     elif stype == "leech":
         thumbpath = f"thumbnails/{user_id}.jpg"
@@ -1288,7 +1261,6 @@ Configure custom video encoding, compression, and watermark overlays for uploads
         else:
             sd_msg = "Disabled"
 
-        buttons.data_button("YT Up Tools", f"userset {user_id} yttools")
         buttons.data_button("Mega Tools", f"userset {user_id} mega")
         if not Config.DISABLE_SEEDR:
             buttons.data_button("Seedr Tools", f"userset {user_id} seedr")
@@ -1593,14 +1565,6 @@ Configure custom video encoding, compression, and watermark overlays for uploads
         )
         buttons.data_button("Rename Format", f"userset {user_id} menu AUTO_RENAME_FORMAT")
 
-        buttons.data_button("YT-DLP Options", f"userset {user_id} menu YT_DLP_OPTIONS")
-        if user_dict.get("YT_DLP_OPTIONS", False):
-            ytopt = user_dict["YT_DLP_OPTIONS"]
-        elif "YT_DLP_OPTIONS" not in user_dict and Config.YT_DLP_OPTIONS:
-            ytopt = Config.YT_DLP_OPTIONS
-        else:
-            ytopt = "None"
-
         if user_dict.get("UPLOAD_PATHS", False):
             upload_paths = user_dict["UPLOAD_PATHS"]
         elif "UPLOAD_PATHS" not in user_dict and Config.UPLOAD_PATHS:
@@ -1609,12 +1573,12 @@ Configure custom video encoding, compression, and watermark overlays for uploads
             upload_paths = "None"
         buttons.data_button("Upload Paths", f"userset {user_id} menu UPLOAD_PATHS")
 
-        yt_cookie_path = f"cookies/{user_id}/cookies.txt"
+        user_cookie_path = f"cookies/{user_id}/cookies.txt"
         user_cookie_msg = (
-            "Exists" if await aiopath.exists(yt_cookie_path) else "Not Exists"
+            "Exists" if await aiopath.exists(user_cookie_path) else "Not Exists"
         )
         buttons.data_button(
-            "YT Cookie File", f"userset {user_id} menu USER_COOKIE_FILE"
+            "Cookie File", f"userset {user_id} menu USER_COOKIE_FILE"
         )
 
         buttons.data_button("◀️ Back", f"userset {user_id} back", "footer")
@@ -1632,58 +1596,7 @@ Configure custom video encoding, compression, and watermark overlays for uploads
 • <b>Rename Format:</b> <code>{escape(str(rename_fmt))}</code>
 • <b>Excluded Extensions:</b> <code>{ex_ex}</code>
 • <b>Upload Paths Dict:</b> <b>{upload_paths}</b>
-• <b>YT-DLP Custom Options:</b> <code>{ytopt}</code>
 • <b>Cookie File Status:</b> <b>{user_cookie_msg}</b></blockquote>"""
-    elif stype == "yttools":
-        buttons.data_button("YT Description", f"userset {user_id} menu YT_DESP")
-        yt_desp_val = user_dict.get(
-            "YT_DESP",
-            Config.YT_DESP if hasattr(Config, "YT_DESP") else "Not Set (Uses Default)",
-        )
-
-        buttons.data_button("YT Tags", f"userset {user_id} menu YT_TAGS")
-        yt_tags_val = user_dict.get(
-            "YT_TAGS",
-            Config.YT_TAGS if hasattr(Config, "YT_TAGS") else "Not Set (Uses Default)",
-        )
-        if isinstance(yt_tags_val, list):
-            yt_tags_val = ",".join(yt_tags_val)
-
-        buttons.data_button("YT Category ID", f"userset {user_id} menu YT_CATEGORY_ID")
-        yt_cat_id_val = user_dict.get(
-            "YT_CATEGORY_ID",
-            (
-                Config.YT_CATEGORY_ID
-                if hasattr(Config, "YT_CATEGORY_ID")
-                else "Not Set (Uses Default)"
-            ),
-        )
-
-        buttons.data_button(
-            "YT Privacy Status", f"userset {user_id} menu YT_PRIVACY_STATUS"
-        )
-        yt_privacy_val = user_dict.get(
-            "YT_PRIVACY_STATUS",
-            (
-                Config.YT_PRIVACY_STATUS
-                if hasattr(Config, "YT_PRIVACY_STATUS")
-                else "Not Set (Uses Default)"
-            ),
-        )
-
-        buttons.data_button("◀️ Back", f"userset {user_id} back mirror", "footer")
-        buttons.data_button(
-            "❌ Close", f"userset {user_id} close", "footer", style=ButtonStyle.DANGER
-        )
-        btns = buttons.build_menu(2)
-
-        text = f"""<b>▶️ YouTube Upload Tools Settings</b>
-
-<blockquote>• <b>User:</b> {user_name}
-• <b>Description:</b> <code>{escape(str(yt_desp_val))}</code>
-• <b>Tags:</b> <code>{escape(str(yt_tags_val))}</code>
-• <b>Category ID:</b> <code>{escape(str(yt_cat_id_val))}</code>
-• <b>Privacy Status:</b> <code>{escape(str(yt_privacy_val))}</code></blockquote>"""
 
     return text, btns
 
@@ -1870,27 +1783,6 @@ async def set_option(_, message, option, rfunc, target_user_id=None):
         for x in fx:
             x = x.lstrip(".")
             value.append(x.strip().lower())
-    elif option == "YT_TAGS":
-        if isinstance(value, str):
-            value = [tag.strip() for tag in value.split(",") if tag.strip()]
-        elif not isinstance(value, list):
-            await send_message(message, "YT Tags must be a comma-separated string.")
-            return
-    elif option == "YT_CATEGORY_ID":
-        if isinstance(value, str) and value.isdigit():
-            value = int(value)
-        elif not isinstance(value, int):
-            await send_message(message, "YT Category ID must be a whole number.")
-            return
-    elif option == "YT_PRIVACY_STATUS":
-        allowed_statuses = ["public", "private", "unlisted"]
-        if not isinstance(value, str) or value.lower() not in allowed_statuses:
-            await send_message(
-                message,
-                f"YT Privacy Status must be one of: {', '.join(allowed_statuses)}.",
-            )
-            return
-        value = value.lower()
     elif option in [
         "SET_ALL_METADATA",
         "METADATA",
@@ -2009,7 +1901,7 @@ async def set_option(_, message, option, rfunc, target_user_id=None):
             else:
                 await send_message(message, "Failed to download image from URL!")
                 return
-    elif option in ["UPLOAD_PATHS", "YT_DLP_OPTIONS", "DRIVE_CAT"]:
+    elif option in ["UPLOAD_PATHS", "DRIVE_CAT"]:
         if value.startswith("{") and value.endswith("}"):
             try:
                 value = literal_eval(sub(r"\s+", " ", value))
@@ -2077,7 +1969,7 @@ async def get_menu(option, message, user_id, start=0):
                 buttons.data_button(
                     "View Thumb", f"userset {user_id} view THUMBNAIL", "header"
                 )
-            elif option in ["YT_DLP_OPTIONS", "UPLOAD_PATHS", "DRIVE_CAT"]:
+            elif option in ["UPLOAD_PATHS", "DRIVE_CAT"]:
                 buttons.data_button(
                     "Add One", f"userset {user_id} addone {option}", "header"
                 )
@@ -2118,8 +2010,6 @@ async def get_menu(option, message, user_id, start=0):
         back_to = "rclone"
     elif option in gdrive_options:
         back_to = "gdrive"
-    elif option in yt_options:
-        back_to = "yttools"
     elif option in ffset_options:
         back_to = "ffset"
     elif option in advanced_options:
@@ -2190,7 +2080,7 @@ async def get_menu(option, message, user_id, start=0):
             val = "\n" + "\n".join([f"• <b>{escape(str(k)).upper()}:</b> <code>{escape(str(v))}</code>" for k, v in user_dump.items()])
         else:
             val = "<b>Not Set (Output sent to default DM)</b>"
-    elif option in ["YT_DLP_OPTIONS", "UPLOAD_PATHS"]:
+    elif option == "UPLOAD_PATHS":
         val = f"<code>{escape(str(val))}</code>" if val else "<b>Not Set</b>"
 
     text = f"""<b>⚙️ Setting Configuration: {option}</b>
@@ -2251,7 +2141,7 @@ async def edit_user_settings(client, query):
     thumb_path = f"thumbnails/{user_id}.jpg"
     rclone_conf = f"rclone/{user_id}.conf"
     token_pickle = f"tokens/{user_id}.pickle"
-    yt_cookie_path = f"cookies/{user_id}/cookies.txt"
+    user_cookie_path = f"cookies/{user_id}/cookies.txt"
 
     user_dict = user_data.get(user_id, {})
     if user_id != int(data[1]):
@@ -2603,7 +2493,7 @@ async def edit_user_settings(client, query):
             elif data[3] == "RCLONE_CONFIG":
                 fpath = rclone_conf
             elif data[3] == "USER_COOKIE_FILE":
-                fpath = yt_cookie_path
+                fpath = user_cookie_path
             elif data[3] == "TOKEN_PICKLE":
                 fpath = token_pickle
             elif data[3] == "THUMB_WM_IMAGE":
@@ -2649,7 +2539,7 @@ async def edit_user_settings(client, query):
             for k in list(user_dict.keys()):
                 if k not in ("SUDO", "AUTH", "VERIFY_TOKEN", "VERIFY_TIME"):
                     del user_dict[k]
-            for fpath in [thumb_path, rclone_conf, token_pickle, yt_cookie_path]:
+            for fpath in [thumb_path, rclone_conf, token_pickle, user_cookie_path]:
                 if await aiopath.exists(fpath):
                     await remove(fpath)
             await update_user_settings(query)

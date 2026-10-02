@@ -74,7 +74,7 @@ HTR-X is built for users who want a single bot stack that can mirror, leech, man
 | Advanced Merge Planner | Interactively reorder files, edit output filenames, and configure merge parameters before uploading |
 | Pre-Upload Video Tools (`-ht`) | Trim media, extract video/audio/subtitles, swap tracks, and toggle merge mode on demand |
 | File selection UI | Review and select torrent / NZB / upload contents before finalizing |
-| Multi-source downloads | Use qBittorrent, Aria2, JDownloader, Mega, NZB, and yt-dlp integrations |
+| Multi-source downloads | Use qBittorrent, Aria2, JDownloader, Mega, and NZB integrations |
 | Storage and upload paths | Push content to Google Drive, Rclone, Mega, and other supported routes |
 | Automation | Limit tasks, tune queues, and manage startup updates from one config layer |
 
