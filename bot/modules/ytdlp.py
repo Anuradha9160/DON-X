@@ -252,35 +252,50 @@ class YtSelection:
         await edit_message(self._reply_to, msg, subbuttons)
 
 
+import importlib.metadata
 import shutil
+import yt_dlp.version
 
-def find_node_executable():
-    node_bin = shutil.which("node") or shutil.which("nodejs") or shutil.which("deno") or shutil.which("bun")
-    if node_bin:
-        return node_bin
-    common_paths = [
-        "/usr/bin/node",
-        "/usr/local/bin/node",
-        "/usr/bin/nodejs",
-        "/usr/local/bin/deno",
-        "/usr/local/bin/bun",
-    ]
-    for path in common_paths:
-        if ospath.exists(path):
-            return path
-    return "node"
+_LOGGED_STARTUP_INFO = False
+
+
+def log_ytdlp_startup_info():
+    global _LOGGED_STARTUP_INFO
+    if _LOGGED_STARTUP_INFO:
+        return
+    _LOGGED_STARTUP_INFO = True
+
+    try:
+        ytdlp_ver = yt_dlp.version.__version__
+    except Exception:
+        ytdlp_ver = "unknown"
+
+    try:
+        ejs_ver = importlib.metadata.version("yt-dlp-ejs")
+    except Exception:
+        ejs_ver = "not installed"
+
+    detected_runtimes = {
+        rt: path for rt in ("deno", "node", "bun") if (path := shutil.which(rt))
+    }
+    runtimes_str = (
+        ", ".join(f"{k} ({v})" for k, v in detected_runtimes.items()) or "none"
+    )
+
+    LOGGER.info(
+        f"yt-dlp version: {ytdlp_ver} | yt-dlp-ejs version: {ejs_ver} | JS runtimes: {runtimes_str}"
+    )
 
 
 def setup_js_runtimes(opts):
+    log_ytdlp_startup_info()
     if "js_runtimes" not in opts:
-        node_exe = find_node_executable()
-        if node_exe:
-            if "deno" in node_exe.lower():
-                opts["js_runtimes"] = {"deno": {"path": node_exe}}
-            elif "bun" in node_exe.lower():
-                opts["js_runtimes"] = {"bun": {"path": node_exe}}
-            else:
-                opts["js_runtimes"] = {"node": {"path": node_exe}}
+        js_runtimes = {}
+        for rt in ("deno", "node", "bun"):
+            if path := shutil.which(rt):
+                js_runtimes[rt] = {"path": path}
+        if js_runtimes:
+            opts["js_runtimes"] = js_runtimes
 
 
 def extract_info(link, options):

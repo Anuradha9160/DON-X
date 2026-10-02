@@ -37,6 +37,6 @@ tenacity>=8.2.0
 uvicorn
 uvloop
 xattr
-yt-dlp[default,curl-cffi]>=2025.01.01
-yt-dlp-ejs
+yt-dlp[default]
+curl-cffi
 pycryptodome

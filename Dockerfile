@@ -1,5 +1,6 @@
 FROM mysterysd/wzmlx:wzadv
 COPY --from=mysterysd/wzmlx:m-tools /usr/local /usr/local
+COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
 
 WORKDIR /usr/src/app
 
