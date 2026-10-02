@@ -17,7 +17,8 @@ from bot import (
     user_data,
 )
 from bot.core.config_manager import Config
-from bot.core.handlers import CustomFilters, TgClient
+from bot.core.tg_client import TgClient
+from bot.helper.telegram_helper.filters import CustomFilters
 from bot.helper.ext_utils.bot_utils import new_task, safe_int, update_user_ldata
 from bot.helper.ext_utils.db_handler import database
 from bot.helper.telegram_helper.bot_commands import BotCommands

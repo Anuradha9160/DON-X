@@ -9,6 +9,7 @@ from ..helper.ext_utils.help_messages import BOT_COMMANDS
 from ..helper.telegram_helper.bot_commands import BotCommands
 from ..helper.telegram_helper.filters import CustomFilters
 from ..modules import *
+from ..modules.taskm import taskm_command, taskm_callback
 from ..helper.ext_utils.track_manager import tm_callback
 from .tg_client import TgClient
 
@@ -433,8 +434,7 @@ async def add_handlers():
         MessageHandler(
             taskm_command,
             filters=command(BotCommands.TaskMCommand, case_sensitive=True)
-            & CustomFilters.sudo
-            & private,
+            & CustomFilters.sudo,
         )
     )
     TgClient.bot.add_handler(
