@@ -431,17 +431,14 @@ async def add_handlers():
     )
     TgClient.bot.add_handler(
         MessageHandler(
-            ytdl,
-            filters=command(BotCommands.YtdlCommand, case_sensitive=True)
-            & CustomFilters.authorized,
+            taskm_command,
+            filters=command(BotCommands.TaskMCommand, case_sensitive=True)
+            & CustomFilters.sudo
+            & private,
         )
     )
     TgClient.bot.add_handler(
-        MessageHandler(
-            ytdl_leech,
-            filters=command(BotCommands.YtdlLeechCommand, case_sensitive=True)
-            & CustomFilters.authorized,
-        )
+        CallbackQueryHandler(taskm_callback, filters=regex("^taskm"))
     )
     TgClient.bot.add_handler(
         MessageHandler(

@@ -59,6 +59,7 @@ class BotCommands:
         "Plugins": "plugins",
         "Memory": ["memory", "mem"],
         "RequestFF": ["requestff", "reqff"],
+        "TaskM": ["taskm", "tm"],
     }
 
     @classmethod
