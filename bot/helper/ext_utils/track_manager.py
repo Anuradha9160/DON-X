@@ -544,11 +544,24 @@ async def proceed_track_manager(listener, dl_path, gid):
     caption, markup = format_tm_ui(session)
 
     try:
-        msg = await send_message(listener.message, caption, markup)
+        msg = await TgClient.bot.send_message(
+            chat_id=user_id,
+            text=caption,
+            reply_markup=markup,
+        )
+        if listener.message.chat.id != user_id:
+            await send_message(
+                listener.message,
+                f"<b>{listener.tag}</b> Your Track Manager selection menu has been sent to DM. Check DM!"
+            )
     except Exception as e:
-        LOGGER.error(f"Failed to send Track Manager message: {e}")
-        track_manager_sessions.pop(mid, None)
-        return dl_path
+        LOGGER.warning(f"Failed to send Track Manager to DM ({user_id}): {e}. Sending in group chat.")
+        try:
+            msg = await send_message(listener.message, caption, markup)
+        except Exception as err:
+            LOGGER.error(f"Failed to send Track Manager message: {err}")
+            track_manager_sessions.pop(mid, None)
+            return dl_path
 
     session["msg"] = msg
 

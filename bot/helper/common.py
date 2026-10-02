@@ -1940,6 +1940,11 @@ class TaskConfig:
                     text=planner_msg_text,
                     reply_markup=markup,
                 )
+                if self.message.chat.id != self.user_id:
+                    await send_message(
+                        self.message,
+                        f"<b>{self.tag}</b> Your Merge Planner has been sent to DM. Check DM!"
+                    )
             except Exception as e:
                 LOGGER.warning(f"Failed to send planner DM: {e}")
                 planner_msg_text, group_markup = format_planner_ui(planner_info, is_dm=False)
