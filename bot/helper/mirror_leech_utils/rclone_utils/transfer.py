@@ -486,6 +486,12 @@ class RcloneTransferHelper:
             "--low-level-retries",
             "1",
             "-M",
+            "--buffer-size",
+            "64M",
+            "--checkers",
+            "32",
+            "--transfers",
+            "16",
         ]
         if self._rclone_select:
             cmd.extend(("--files-from", self._listener.link))

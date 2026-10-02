@@ -9,16 +9,6 @@ mirror = """<b>Send a link along with command options:</b>
 
 <blockquote><b>Note:</b> Commands starting with <b>qb</b> are ONLY for torrent tasks.</blockquote>"""
 
-yt = """<b>Send a link along with command options:</b>
-
-<code>/cmd link</code>
-
-<b>Or reply to a link:</b>
-
-<code>/cmd -n "New Name" -z password -opt x:y|x1:y1</code>
-
-<blockquote>Check all supported <a href='https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md'>sites</a> or explore yt-dlp options in <a href='https://github.com/yt-dlp/yt-dlp/blob/master/yt_dlp/YoutubeDL.py#L212'>YoutubeDL.py</a>.</blockquote>"""
-
 clone = """<b>Clone Google Drive or Rclone path:</b>
 
 Send link or path along with command or reply to it.
@@ -240,31 +230,6 @@ Apply custom title, artist, audio and subtitle language tags.
 
 <b>Example:</b>
 <code>/mirror link -meta title=Movie|artist={audiolang} Edition</code></blockquote>"""
-
-YT_HELP_DICT = {
-    "main": yt,
-    "New-Name": f"{new_name}\nNote: Don't add file extension",
-    "Zip": zip_arg,
-    "Quality": qual,
-    "Options": yt_opt,
-    "Multi-Link": multi_link,
-    "Same-Directory": same_dir,
-    "Thumb": thumb,
-    "Split-Size": split_size,
-    "Upload-Destination": upload,
-    "Rclone-Flags": rcf,
-    "Bulk": bulk,
-    "Sample-Video": sample_video,
-    "Screenshot": screenshot,
-    "Convert-Media": convert_media,
-    "Force-Start": force_start,
-    "Name-Swap": name_swap,
-    "TG-Transmission": transmission,
-    "Thumb-Layout": thumbnail_layout,
-    "Leech-Type": leech_as,
-    "FFmpeg-Cmds": ffmpeg_cmds,
-    "Metadata": metadata,
-}
 
 MIRROR_HELP_DICT = {
     "main": mirror,

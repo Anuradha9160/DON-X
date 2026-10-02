@@ -1,6 +1,5 @@
 from ..helper.ext_utils.bot_utils import COMMAND_USAGE, new_task
 from ..helper.ext_utils.help_messages import (
-    YT_HELP_DICT,
     MIRROR_HELP_DICT,
     CLONE_HELP_DICT,
 )
@@ -33,7 +32,6 @@ async def arg_usage(_, query):
     elif data[1] in COMMAND_USAGE:
         info = {
             "mirror": ("m", MIRROR_HELP_DICT),
-            "yt": ("y", YT_HELP_DICT),
             "clone": ("c", CLONE_HELP_DICT),
         }
         back_key, help_dict = info[data[1]]
