@@ -104,6 +104,15 @@ class YoutubeDLHelper:
         if ospath.exists(ospath.expanduser("~/.netrc")):
             self.opts["usenetrc"] = True
 
+        cookie_to_use, _ = get_cookie_file(
+            getattr(listener, "user_dict", {}), getattr(listener, "user_id", 0)
+        )
+        if cookie_to_use:
+            self.opts["cookiefile"] = cookie_to_use
+
+        from ....modules.ytdlp import setup_js_runtimes
+        setup_js_runtimes(self.opts)
+
     @property
     def download_speed(self):
         return self._download_speed

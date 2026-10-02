@@ -15,9 +15,47 @@ def test_setup_js_runtimes(monkeypatch):
     opts = {}
     setup_js_runtimes(opts)
     assert "js_runtimes" in opts
-    assert "node" in opts["js_runtimes"]
-    assert opts["js_runtimes"]["node"]["path"] == "/usr/bin/node"
-    assert list(opts["js_runtimes"].keys())[0] == "node"
+    assert "deno" in opts["js_runtimes"]
+    assert opts["js_runtimes"]["deno"]["path"] == "/usr/bin/deno"
+    assert list(opts["js_runtimes"].keys())[0] == "deno"
+
+
+def test_ytdl_leech_command_alias_and_suffix(monkeypatch):
+    from bot.helper.telegram_helper.bot_commands import BotCommands
+    from bot.core.config_manager import Config
+
+    assert "yl" in BotCommands._static_commands["YtdlLeech"]
+    assert "ytdlleech" in BotCommands._static_commands["YtdlLeech"]
+
+    monkeypatch.setattr(Config, "CMD_SUFFIX", "_bot")
+    BotCommands.refresh_commands()
+    assert "yl_bot" in BotCommands.YtdlLeechCommand
+    assert "ytdlleech_bot" in BotCommands.YtdlLeechCommand
+
+    monkeypatch.setattr(Config, "CMD_SUFFIX", "")
+    BotCommands.refresh_commands()
+    assert "yl" in BotCommands.YtdlLeechCommand
+    assert "ytdlleech" in BotCommands.YtdlLeechCommand
+
+
+def test_youtubedl_helper_opts_setup(tmp_path, monkeypatch):
+    from bot.helper.mirror_leech_utils.download_utils.yt_dlp_download import YoutubeDLHelper
+
+    cookie_file = str(tmp_path / "cookies.txt")
+    with open(cookie_file, "w") as f:
+        f.write("# Netscape HTTP Cookie File\n")
+
+    monkeypatch.setattr("shutil.which", lambda rt: "/usr/bin/deno" if rt == "deno" else None)
+
+    mock_listener = MagicMock()
+    mock_listener.user_dict = {"USER_COOKIE_FILE": cookie_file}
+    mock_listener.user_id = 9999
+
+    helper = YoutubeDLHelper(mock_listener)
+    assert helper.opts.get("cookiefile") == cookie_file
+    assert "js_runtimes" in helper.opts
+    assert "deno" in helper.opts["js_runtimes"]
+    assert helper.opts["js_runtimes"]["deno"]["path"] == "/usr/bin/deno"
 
 
 def test_is_youtube_link():

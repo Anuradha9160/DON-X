@@ -137,41 +137,45 @@ class YtSelection:
         else:
             format_dict = result.get("formats")
             if format_dict is not None:
+                self._is_m4a = any(
+                    item.get("audio_ext") == "m4a" or item.get("ext") == "m4a"
+                    for item in format_dict
+                    if item.get("video_ext") == "none" or item.get("vcodec") == "none"
+                )
                 for item in format_dict:
-                    if item.get("tbr"):
-                        format_id = item["format_id"]
+                    if (
+                        item.get("video_ext") == "none"
+                        and item.get("acodec") != "none"
+                    ):
+                        b_name = f"{item['acodec']}-{item['ext']}"
+                        v_format = item["format_id"]
+                        tbr_val = item.get("tbr") or item.get("abr") or 0
+                    elif item.get("height"):
+                        height = item["height"]
+                        ext = item["ext"]
+                        fps = item["fps"] if item.get("fps") else ""
+                        b_name = f"{height}p{fps}-{ext}"
+                        ba_ext = (
+                            "[ext=m4a]" if self._is_m4a and ext == "mp4" else ""
+                        )
+                        v_format = f"{item['format_id']}+ba{ba_ext}/b[height=?{height}]"
+                        tbr_val = item.get("tbr") or (
+                            (item.get("vbr") or 0) + (item.get("abr") or 0)
+                        ) or 0
+                    else:
+                        continue
 
-                        if item.get("filesize"):
-                            size = item["filesize"]
-                        elif item.get("filesize_approx"):
-                            size = item["filesize_approx"]
-                        else:
-                            size = 0
+                    if item.get("filesize"):
+                        size = item["filesize"]
+                    elif item.get("filesize_approx"):
+                        size = item["filesize_approx"]
+                    else:
+                        size = 0
 
-                        if (
-                            item.get("video_ext") == "none"
-                            and item.get("acodec") != "none"
-                        ):
-                            if item.get("audio_ext") == "m4a":
-                                self._is_m4a = True
-                            b_name = f"{item['acodec']}-{item['ext']}"
-                            v_format = format_id
-                        elif item.get("height"):
-                            height = item["height"]
-                            ext = item["ext"]
-                            fps = item["fps"] if item.get("fps") else ""
-                            b_name = f"{height}p{fps}-{ext}"
-                            ba_ext = (
-                                "[ext=m4a]" if self._is_m4a and ext == "mp4" else ""
-                            )
-                            v_format = f"{format_id}+ba{ba_ext}/b[height=?{height}]"
-                        else:
-                            continue
-
-                        self.formats.setdefault(b_name, {})[f"{item['tbr']}"] = [
-                            size,
-                            v_format,
-                        ]
+                    self.formats.setdefault(b_name, {})[f"{tbr_val}"] = [
+                        size,
+                        v_format,
+                    ]
 
                 for b_name, tbr_dict in self.formats.items():
                     if len(tbr_dict) == 1:
@@ -276,7 +280,7 @@ def log_ytdlp_startup_info():
         ejs_ver = "not installed"
 
     detected_runtimes = {
-        rt: path for rt in ("node", "deno", "bun") if (path := shutil.which(rt))
+        rt: path for rt in ("deno", "node", "bun") if (path := shutil.which(rt))
     }
     runtimes_str = (
         ", ".join(f"{k} ({v})" for k, v in detected_runtimes.items()) or "none"
@@ -288,7 +292,7 @@ def log_ytdlp_startup_info():
 
 
 def find_node_executable():
-    for rt in ("node", "deno", "bun"):
+    for rt in ("deno", "node", "bun"):
         if path := shutil.which(rt):
             return path
     return None
@@ -298,7 +302,7 @@ def setup_js_runtimes(opts):
     log_ytdlp_startup_info()
     if "js_runtimes" not in opts:
         js_runtimes = {}
-        for rt in ("node", "deno", "bun"):
+        for rt in ("deno", "node", "bun"):
             if path := shutil.which(rt):
                 js_runtimes[rt] = {"path": path}
         if js_runtimes:
