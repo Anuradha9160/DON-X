@@ -287,6 +287,13 @@ def log_ytdlp_startup_info():
     )
 
 
+def find_node_executable():
+    for rt in ("node", "deno", "bun"):
+        if path := shutil.which(rt):
+            return path
+    return None
+
+
 def setup_js_runtimes(opts):
     log_ytdlp_startup_info()
     if "js_runtimes" not in opts:

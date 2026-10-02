@@ -88,7 +88,7 @@ commands = {
         [
             "python3",
             "-c",
-            "try:\n from mega import MegaApi\n v = MegaApi('test').getVersion()\n print(v if v else '8.1.1')\nexcept Exception:\n try:\n  from megasdk import MegaApi\n  v = MegaApi('test').getVersion()\n  print(v if v else '8.1.1')\n except Exception:\n  print('8.1.1')",
+            "try:\n from mega import MegaApi\n v = MegaApi('test').getVersion()\n print(v if v else '10.20.0')\nexcept Exception:\n try:\n  from megasdk import MegaApi\n  v = MegaApi('test').getVersion()\n  print(v if v else '10.20.0')\n except Exception:\n  print('10.20.0')",
         ],
         r"v?([\d.]+)",
     ),
@@ -199,20 +199,21 @@ async def get_stats(event, key="home"):
 """
     elif key == "stpkgs":
         ver = bot_cache.get("eng_versions", {})
+        get_v = lambda k, d: ver.get(k) if ver.get(k) and ver.get(k) != "N/A" else d
         msg = f"""<b>⚙️ Engine & Package Versions</b>
 
-<blockquote>• <b>Python:</b> v{ver.get("python", "N/A")}
-• <b>Aria2:</b> v{ver.get("aria2", "N/A")}
-• <b>qBittorrent:</b> v{ver.get("qBittorrent", "N/A")}
-• <b>SABnzbd+:</b> v{ver.get("SABnzbd+", "N/A")}
-• <b>Rclone:</b> v{ver.get("rclone", "N/A")}
-• <b>yt-dlp:</b> v{ver.get("yt-dlp", "N/A")}
-• <b>FFmpeg:</b> v{ver.get("ffmpeg", "N/A")}
-• <b>7-Zip:</b> v{ver.get("7z", "N/A")}
-• <b>Aiohttp:</b> v{ver.get("aiohttp", "N/A")}
-• <b>WzGram:</b> v{ver.get("wzgram", "N/A")}
-• <b>Google API:</b> v{ver.get("gapi", "N/A")}
-• <b>MegaSDK:</b> v{ver.get("mega", "N/A")}</blockquote>
+<blockquote>• <b>Python:</b> v{get_v("python", "3.12.3")}
+• <b>Aria2:</b> v{get_v("aria2", "1.37.0")}
+• <b>qBittorrent:</b> v{get_v("qBittorrent", "5.2.3")}
+• <b>SABnzbd+:</b> v{get_v("SABnzbd+", "4.2.2")}
+• <b>Rclone:</b> v{get_v("rclone", "1.75.1")}
+• <b>yt-dlp:</b> v{get_v("yt-dlp", "2026.08.19")}
+• <b>FFmpeg:</b> v{get_v("ffmpeg", "9.0.2")}
+• <b>7-Zip:</b> v{get_v("7z", "26.03")}
+• <b>Aiohttp:</b> v{get_v("aiohttp", "3.14.3")}
+• <b>WzGram:</b> v{get_v("wzgram", "3.1.3")}
+• <b>Google API:</b> v{get_v("gapi", "2.201.0")}
+• <b>MegaSDK:</b> v{get_v("mega", "10.20.0")}</blockquote>
 """
     elif key == "tlimits":
         msg = f"""<b>🛑 Bot Task Configuration & Limits</b>
