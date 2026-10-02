@@ -291,6 +291,9 @@ def find_node_executable():
     for rt in ("node", "deno", "bun"):
         if path := shutil.which(rt):
             return path
+    for path in ("/usr/bin/node", "/usr/local/bin/node", "/usr/bin/deno", "/usr/local/bin/bun"):
+        if ospath.exists(path):
+            return path
     return None
 
 
@@ -301,6 +304,11 @@ def setup_js_runtimes(opts):
         for rt in ("deno", "node", "bun"):
             if path := shutil.which(rt):
                 js_runtimes[rt] = {"path": path}
+        if not js_runtimes:
+            node_path = find_node_executable()
+            if node_path:
+                rt_name = "node" if "node" in node_path else ("deno" if "deno" in node_path else "bun")
+                js_runtimes[rt_name] = {"path": node_path}
         if js_runtimes:
             opts["js_runtimes"] = js_runtimes
 

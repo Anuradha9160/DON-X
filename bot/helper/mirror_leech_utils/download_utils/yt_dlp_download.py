@@ -103,6 +103,12 @@ class YoutubeDLHelper:
         }
         if ospath.exists(ospath.expanduser("~/.netrc")):
             self.opts["usenetrc"] = True
+        user_dict = getattr(self._listener, "user_dict", {})
+        user_id = getattr(self._listener, "user_id", 0)
+        cookie_to_use, _ = get_cookie_file(user_dict, user_id)
+        if cookie_to_use:
+            self.opts["cookiefile"] = cookie_to_use
+            LOGGER.info(f"Using cookies file: {cookie_to_use} | User ID : {user_id}")
 
     @property
     def download_speed(self):
@@ -166,7 +172,9 @@ class YoutubeDLHelper:
         async_to_sync(self._listener.on_download_error, error)
 
     def extract_meta_data(self, link, name):
+        from ....modules.ytdlp import setup_js_runtimes
         opts = dict(self.opts)
+        setup_js_runtimes(opts)
 
         if link.startswith(("rtmp", "mms", "rstp", "rtmps")):
             opts["external_downloader"] = "ffmpeg"
@@ -215,7 +223,9 @@ class YoutubeDLHelper:
 
 
     def _download(self, link, path):
+        from ....modules.ytdlp import setup_js_runtimes
         opts = dict(self.opts)
+        setup_js_runtimes(opts)
 
         try:
             try:
