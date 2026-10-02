@@ -542,23 +542,23 @@ class TaskConfig:
             user_dump = self.user_dict.get("FFMPEG_DUMP") or {}
             global_dump = Config.FFMPEG_DUMP or {}
             dump_chats = Config.LEECH_DUMP_CHATS or {}
+            has_preset_dump = False
             for k in keys:
                 d_val = user_dump.get(k) or global_dump.get(k)
                 if d_val:
                     resolved_dest = dump_chats.get(d_val) or d_val
                     if resolved_dest and resolved_dest not in self.key_dump_dests:
                         self.key_dump_dests.append(resolved_dest)
-                elif Config.LEECH_LOG_CHAT:
-                    if Config.LEECH_LOG_CHAT not in self.key_dump_dests:
-                        self.key_dump_dests.append(Config.LEECH_LOG_CHAT)
+                        has_preset_dump = True
 
-            universal_dump = self.user_dict.get("LEECH_DUMP_CHAT") or Config.LEECH_LOG_CHAT or ""
-            if self.key_dump_dests:
+            if has_preset_dump:
+                self.has_preset_dump = True
                 self.dump_dest = self.key_dump_dests[0]
-                if universal_dump and universal_dump not in self.key_dump_dests:
-                    self.key_dump_dests.append(universal_dump)
-            elif not self.dump_dest:
-                self.dump_dest = universal_dump
+            else:
+                self.has_preset_dump = False
+                universal_dump = self.user_dict.get("LEECH_DUMP_CHAT") or Config.LEECH_LOG_CHAT or ""
+                if not self.dump_dest:
+                    self.dump_dest = universal_dump
 
         self.metadata_title = self.user_dict.get("METADATA")
 
