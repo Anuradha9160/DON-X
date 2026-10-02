@@ -117,12 +117,12 @@ class Config:
     MEDIA_GROUP = False
     USE_HYPER = True
     HYPER_THREADS = 0
-    HYPER_PIPELINE = 4
-    HYPER_CHUNK = 1024 * 1024
+    HYPER_PIPELINE = 8
+    HYPER_CHUNK = 2 * 1024 * 1024
     MEM_BUDGET = 0
     MEM_DEEP_STATS = False
-    STREAM_PIPELINE = 8
-    STREAM_CHUNK = 1048576
+    STREAM_PIPELINE = 16
+    STREAM_CHUNK = 2097152
     STREAM_PER_CLIENT = 6
     STREAM_GATE = 96
     CPU_LIMIT = 20
@@ -180,10 +180,6 @@ class Config:
     WEB_ACCESS_PASSWORD = ""
     WEB_PINCODE = True
     YT_DLP_OPTIONS = {}
-    YT_DESP = "Uploaded with HTR-X bot"
-    YT_TAGS = ["telegram", "bot", "youtube"]
-    YT_CATEGORY_ID = 22
-    YT_PRIVACY_STATUS = "unlisted"
 
     @classmethod
     def get(cls, key):

@@ -76,10 +76,10 @@ def format_tm_ui(session):
     mid = session["mid"]
     files = session["files"]
     view_mode = session["view_mode"]
-    page = session["page"]
+    page = session.get("page", 1)
     page_size = session.get("page_size", 5)
     cur_idx = session.get("current_file_idx", 0)
-    is_multi = session["is_multi"]
+    is_multi = session.get("is_multi", False)
 
     total_files = len(files)
     total_pages = max(1, (total_files + page_size - 1) // page_size)
@@ -168,18 +168,33 @@ def format_tm_ui(session):
         order = cur_file["audio_order"] if is_aud else cur_file["sub_order"]
         selected = cur_file["selected_audio"] if is_aud else cur_file["selected_sub"]
 
+        track_page = session.get("track_page", 1)
+        track_page_size = session.get("track_page_size", 10)
+
+        total_tracks = len(order)
+        total_track_pages = max(1, (total_tracks + track_page_size - 1) // track_page_size)
+        track_page = max(1, min(track_page, total_track_pages))
+        session["track_page"] = track_page
+
         mode_title = "🎵 Audio Track Selection" if is_aud else "💬 Subtitle Track Selection"
 
         lines = [
             f"<b>{mode_title}</b>\n",
-            f"• <b>File:</b> <code>{escape(fname)}</code>\n",
-            "<b>Available Tracks:</b>",
+            f"• <b>File:</b> <code>{escape(fname)}</code>",
+            f"• <b>Total Tracks:</b> {total_tracks}",
         ]
+        if total_track_pages > 1:
+            lines.append(f"• <b>Track Page:</b> {track_page}/{total_track_pages}")
+        lines.append("\n<b>Available Tracks:</b>")
 
         if not tracks:
             lines.append("<i>No tracks available</i>")
         else:
-            for display_pos, pos in enumerate(order, start=1):
+            start_t = (track_page - 1) * track_page_size
+            end_t = min(start_t + track_page_size, total_tracks)
+            page_order = order[start_t:end_t]
+
+            for display_pos, pos in enumerate(page_order, start=start_t + 1):
                 t = tracks[pos]
                 status = "✓" if pos in selected else "✗"
                 lang_disp = t["short_lang"]
@@ -187,22 +202,35 @@ def format_tm_ui(session):
 
         caption = "\n".join(lines)
 
-        # First column: Available tracks with short language names (b_cols=1)
-        for display_pos, pos in enumerate(order, start=1):
-            t = tracks[pos]
-            status = "✓" if pos in selected else "✗"
-            btn_label = f"{display_pos}. {t['short_lang']} [{status}]"
-            toggle_action = "toggle_aud" if is_aud else "toggle_sub"
-            buttons.data_button(btn_label, f"tmcb {toggle_action} {mid} {pos}", position="default")
+        # Track pagination in header (h_cols=3)
+        if total_track_pages > 1:
+            prev_tp = track_page - 1 if track_page > 1 else total_track_pages
+            next_tp = track_page + 1 if track_page < total_track_pages else 1
+            buttons.data_button("◀️ Prev Tracks", f"tmcb track_page {mid} {prev_tp}", position="header")
+            buttons.data_button(f"Tracks {track_page}/{total_track_pages}", "tmcb dummy", position="header")
+            buttons.data_button("Next Tracks ▶️", f"tmcb track_page {mid} {next_tp}", position="header")
 
-        # Up and Down reorder buttons below track list in f_body (fb_cols=2)
-        if len(order) > 1:
-            reorder_action = "move_aud" if is_aud else "move_sub"
-            for display_pos in range(len(order)):
-                up_cb = f"tmcb {reorder_action} {mid} {display_pos} -1" if display_pos > 0 else "tmcb dummy"
-                dn_cb = f"tmcb {reorder_action} {mid} {display_pos} 1" if display_pos < len(order) - 1 else "tmcb dummy"
-                buttons.data_button(f"#{display_pos + 1} ⬆️", up_cb, position="f_body")
-                buttons.data_button(f"#{display_pos + 1} ⬇️", dn_cb, position="f_body")
+        # First column: Available tracks for current track page (b_cols=1)
+        if tracks:
+            start_t = (track_page - 1) * track_page_size
+            end_t = min(start_t + track_page_size, total_tracks)
+            page_order = order[start_t:end_t]
+
+            for display_pos, pos in enumerate(page_order, start=start_t + 1):
+                t = tracks[pos]
+                status = "✓" if pos in selected else "✗"
+                btn_label = f"{display_pos}. {t['short_lang']} [{status}]"
+                toggle_action = "toggle_aud" if is_aud else "toggle_sub"
+                buttons.data_button(btn_label, f"tmcb {toggle_action} {mid} {pos}", position="default")
+
+            # Up and Down reorder buttons below track list in f_body (fb_cols=2)
+            if len(order) > 1:
+                reorder_action = "move_aud" if is_aud else "move_sub"
+                for abs_disp_pos in range(start_t, end_t):
+                    up_cb = f"tmcb {reorder_action} {mid} {abs_disp_pos} -1" if abs_disp_pos > 0 else "tmcb dummy"
+                    dn_cb = f"tmcb {reorder_action} {mid} {abs_disp_pos} 1" if abs_disp_pos < len(order) - 1 else "tmcb dummy"
+                    buttons.data_button(f"#{abs_disp_pos + 1} ⬆️", up_cb, position="f_body")
+                    buttons.data_button(f"#{abs_disp_pos + 1} ⬇️", dn_cb, position="f_body")
 
         # Footer controls
         if is_aud:
@@ -217,7 +245,7 @@ def format_tm_ui(session):
         buttons.data_button("✅ Done", f"tmcb done {mid}", position="footer")
 
         footer_cols = 3 if is_multi else 2
-        return caption, buttons.build_menu(b_cols=1, fb_cols=2, f_cols=footer_cols)
+        return caption, buttons.build_menu(b_cols=1, h_cols=3, fb_cols=2, f_cols=footer_cols)
 
 
 @new_task
@@ -247,6 +275,13 @@ async def tm_callback(client, query: CallbackQuery):
         caption, markup = format_tm_ui(session)
         await edit_message(session["msg"], caption, markup)
 
+    elif cmd == "track_page":
+        target_tp = int(data[3])
+        session["track_page"] = target_tp
+        await query.answer(f"Track Page {target_tp}")
+        caption, markup = format_tm_ui(session)
+        await edit_message(session["msg"], caption, markup)
+
     elif cmd == "select_file":
         session["view_mode"] = "select_file"
         await query.answer()
@@ -257,6 +292,7 @@ async def tm_callback(client, query: CallbackQuery):
         target_f_idx = int(data[3])
         session["current_file_idx"] = target_f_idx
         session["view_mode"] = "audio"
+        session["track_page"] = 1
         await query.answer(f"Editing file #{target_f_idx + 1}")
         caption, markup = format_tm_ui(session)
         await edit_message(session["msg"], caption, markup)
@@ -264,6 +300,7 @@ async def tm_callback(client, query: CallbackQuery):
     elif cmd == "view":
         target_view = data[3]
         session["view_mode"] = target_view
+        session["track_page"] = 1
         await query.answer()
         caption, markup = format_tm_ui(session)
         await edit_message(session["msg"], caption, markup)

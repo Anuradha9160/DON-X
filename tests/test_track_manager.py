@@ -124,6 +124,32 @@ class TestTrackManager(unittest.TestCase):
         caption, markup = format_tm_ui(session)
         self.assertIn("Select a File to Edit Tracks", caption)
 
+    def test_format_tm_ui_1000_tracks(self):
+        audio_tracks = [{"index": i, "short_lang": f"A{i}"} for i in range(1050)]
+        session = {
+            "mid": 12345,
+            "is_multi": False,
+            "view_mode": "audio",
+            "track_page": 1,
+            "track_page_size": 10,
+            "current_file_idx": 0,
+            "files": [
+                {
+                    "path": "/tmp/many_tracks.mkv",
+                    "name": "many_tracks.mkv",
+                    "audio_tracks": audio_tracks,
+                    "sub_tracks": [],
+                    "audio_order": list(range(1050)),
+                    "sub_order": [],
+                    "selected_audio": set(range(1050)),
+                    "selected_sub": set(),
+                }
+            ],
+        }
+        caption, markup = format_tm_ui(session)
+        self.assertIn("Total Tracks:</b> 1050", caption)
+        self.assertIn("Track Page:</b> 1/105", caption)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -306,12 +306,8 @@ DEFAULT_DESP = {
     "WEB_ACCESS_PASSWORD": "Web proxy password.",
     "WEB_PINCODE": "Web file selection pin.",
     "YT_DLP_OPTIONS": "yt-dlp options dict.",
-    "YT_DESP": "YouTube description.",
-    "YT_TAGS": "YouTube tags list.",
-    "YT_CATEGORY_ID": "YouTube category ID.",
     "PLUGIN_INDEXES": "Plugin index URLs.",
     "ENABLE_TELEMETRY": "Enable crash telemetry.",
-    "YT_PRIVACY_STATUS": "YouTube privacy status.",
 }
 
 PROTECTED_VARS = {

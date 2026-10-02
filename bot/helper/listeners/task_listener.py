@@ -55,9 +55,7 @@ from ..mirror_leech_utils.status_utils.gdrive_status import (
 from ..mirror_leech_utils.status_utils.queue_status import QueueStatus
 from ..mirror_leech_utils.status_utils.rclone_status import RcloneStatus
 from ..mirror_leech_utils.status_utils.telegram_status import TelegramStatus
-from ..mirror_leech_utils.status_utils.yt_status import YtStatus
 from ..mirror_leech_utils.upload_utils.telegram_uploader import TelegramUploader
-from ..mirror_leech_utils.youtube_utils.youtube_upload import YouTubeUpload
 from ..telegram_helper.button_build import ButtonMaker
 from ..telegram_helper.message_utils import (
     delete_links,
@@ -500,17 +498,7 @@ class TaskListener(TaskConfig):
 
         self.size = await get_path_size(up_dir)
 
-        if self.is_yt:
-            LOGGER.info(f"Up to yt Name: {self.name}")
-            yt = YouTubeUpload(self, up_path)
-            async with task_dict_lock:
-                task_dict[self.mid] = YtStatus(self, yt, gid, "up")
-            await gather(
-                update_status_message(self.message.chat.id),
-                sync_to_async(yt.upload),
-            )
-            del yt
-        elif self.is_leech:
+        if self.is_leech:
             LOGGER.info(f"Leech Name: {self.name}")
             if not self.thumb or not await aiopath.exists(self.thumb):
                 user_thumb = self.user_dict.get("THUMBNAIL") or f"thumbnails/{self.user_id}.jpg"
@@ -607,33 +595,7 @@ class TaskListener(TaskConfig):
             f"• <b>Out Mode:</b> {self.mode[1]}</blockquote>"
         )
         LOGGER.info(f"Task Done: {self.name}")
-        if self.is_yt:
-            buttons = ButtonMaker()
-            if mime_type == "Folder/Playlist":
-                msg += f"\n<blockquote>• <b>Type:</b> Playlist\n• <b>Total Videos:</b> {files}</blockquote>"
-                if link:
-                    buttons.url_button(
-                        "🔗 View Playlist", link, style=ButtonStyle.PRIMARY
-                    )
-                user_message = f"{self.tag}\nYour playlist ({files} videos) has been uploaded to YouTube successfully!"
-            else:
-                msg += "\n<blockquote>• <b>Type:</b> Video</blockquote>"
-                if link:
-                    buttons.url_button("🔗 View Video", link, style=ButtonStyle.PRIMARY)
-                user_message = (
-                    f"{self.tag}\nYour video has been uploaded to YouTube successfully!"
-                )
-
-            msg += f"\n\n<b>User:</b> {self.tag}"
-
-            button = buttons.build_menu(1) if link else None
-
-            await send_message(self.user_id, msg, button)
-            if Config.LEECH_LOG_CHAT:
-                await send_message(Config.LEECH_LOG_CHAT, msg, button)
-            await send_message(self.message, user_message, button)
-
-        elif self.is_leech:
+        if self.is_leech:
             msg += f"\n<blockquote>• <b>Total Files:</b> {folders}\n"
             if mime_type != 0:
                 msg += f"• <b>Corrupted Files:</b> {mime_type}\n"

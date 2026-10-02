@@ -81,7 +81,6 @@ advanced_options = [
     "UPLOAD_PATHS",
     "USER_COOKIE_FILE",
 ]
-yt_options = ["YT_DESP", "YT_TAGS", "YT_CATEGORY_ID", "YT_PRIVACY_STATUS"]
 mega_options = ["MEGA_EMAIL", "MEGA_PASSWORD"]
 seedr_options = ["SEEDR_EMAIL", "SEEDR_PASSWORD", "SEEDR_DELETE_FOLDER"]
 
@@ -222,26 +221,6 @@ user_settings_text = {
         "Key-Value string",
         "Subtitle stream metadata.",
         "<blockquote>Send subtitle metadata format: <code>key=value</code>\n⏱️ <b>Time Left:</b> <code>60 sec</code></blockquote>",
-    ),
-    "YT_DESP": (
-        "String",
-        "Custom YouTube upload description.",
-        "<blockquote>Send custom YouTube description.\n⏱️ <b>Time Left:</b> <code>60 sec</code></blockquote>",
-    ),
-    "YT_TAGS": (
-        "Comma-separated list",
-        "Custom tags for YouTube uploads.",
-        "<blockquote>Send comma-separated YouTube tags.\n⏱️ <b>Time Left:</b> <code>60 sec</code></blockquote>",
-    ),
-    "YT_CATEGORY_ID": (
-        "Number",
-        "YouTube category ID.",
-        "<blockquote>Send YouTube category ID number.\n⏱️ <b>Time Left:</b> <code>60 sec</code></blockquote>",
-    ),
-    "YT_PRIVACY_STATUS": (
-        "public / private / unlisted",
-        "Privacy status for YouTube videos.",
-        "<blockquote>Send privacy status: public, private, or unlisted.\n⏱️ <b>Time Left:</b> <code>60 sec</code></blockquote>",
     ),
     "USER_COOKIE_FILE": (
         "File",
@@ -1288,7 +1267,6 @@ Configure custom video encoding, compression, and watermark overlays for uploads
         else:
             sd_msg = "Disabled"
 
-        buttons.data_button("YT Up Tools", f"userset {user_id} yttools")
         buttons.data_button("Mega Tools", f"userset {user_id} mega")
         if not Config.DISABLE_SEEDR:
             buttons.data_button("Seedr Tools", f"userset {user_id} seedr")
@@ -1634,57 +1612,6 @@ Configure custom video encoding, compression, and watermark overlays for uploads
 • <b>Upload Paths Dict:</b> <b>{upload_paths}</b>
 • <b>YT-DLP Custom Options:</b> <code>{ytopt}</code>
 • <b>Cookie File Status:</b> <b>{user_cookie_msg}</b></blockquote>"""
-    elif stype == "yttools":
-        buttons.data_button("YT Description", f"userset {user_id} menu YT_DESP")
-        yt_desp_val = user_dict.get(
-            "YT_DESP",
-            Config.YT_DESP if hasattr(Config, "YT_DESP") else "Not Set (Uses Default)",
-        )
-
-        buttons.data_button("YT Tags", f"userset {user_id} menu YT_TAGS")
-        yt_tags_val = user_dict.get(
-            "YT_TAGS",
-            Config.YT_TAGS if hasattr(Config, "YT_TAGS") else "Not Set (Uses Default)",
-        )
-        if isinstance(yt_tags_val, list):
-            yt_tags_val = ",".join(yt_tags_val)
-
-        buttons.data_button("YT Category ID", f"userset {user_id} menu YT_CATEGORY_ID")
-        yt_cat_id_val = user_dict.get(
-            "YT_CATEGORY_ID",
-            (
-                Config.YT_CATEGORY_ID
-                if hasattr(Config, "YT_CATEGORY_ID")
-                else "Not Set (Uses Default)"
-            ),
-        )
-
-        buttons.data_button(
-            "YT Privacy Status", f"userset {user_id} menu YT_PRIVACY_STATUS"
-        )
-        yt_privacy_val = user_dict.get(
-            "YT_PRIVACY_STATUS",
-            (
-                Config.YT_PRIVACY_STATUS
-                if hasattr(Config, "YT_PRIVACY_STATUS")
-                else "Not Set (Uses Default)"
-            ),
-        )
-
-        buttons.data_button("◀️ Back", f"userset {user_id} back mirror", "footer")
-        buttons.data_button(
-            "❌ Close", f"userset {user_id} close", "footer", style=ButtonStyle.DANGER
-        )
-        btns = buttons.build_menu(2)
-
-        text = f"""<b>▶️ YouTube Upload Tools Settings</b>
-
-<blockquote>• <b>User:</b> {user_name}
-• <b>Description:</b> <code>{escape(str(yt_desp_val))}</code>
-• <b>Tags:</b> <code>{escape(str(yt_tags_val))}</code>
-• <b>Category ID:</b> <code>{escape(str(yt_cat_id_val))}</code>
-• <b>Privacy Status:</b> <code>{escape(str(yt_privacy_val))}</code></blockquote>"""
-
     return text, btns
 
 
@@ -1870,27 +1797,6 @@ async def set_option(_, message, option, rfunc, target_user_id=None):
         for x in fx:
             x = x.lstrip(".")
             value.append(x.strip().lower())
-    elif option == "YT_TAGS":
-        if isinstance(value, str):
-            value = [tag.strip() for tag in value.split(",") if tag.strip()]
-        elif not isinstance(value, list):
-            await send_message(message, "YT Tags must be a comma-separated string.")
-            return
-    elif option == "YT_CATEGORY_ID":
-        if isinstance(value, str) and value.isdigit():
-            value = int(value)
-        elif not isinstance(value, int):
-            await send_message(message, "YT Category ID must be a whole number.")
-            return
-    elif option == "YT_PRIVACY_STATUS":
-        allowed_statuses = ["public", "private", "unlisted"]
-        if not isinstance(value, str) or value.lower() not in allowed_statuses:
-            await send_message(
-                message,
-                f"YT Privacy Status must be one of: {', '.join(allowed_statuses)}.",
-            )
-            return
-        value = value.lower()
     elif option in [
         "SET_ALL_METADATA",
         "METADATA",
@@ -2118,8 +2024,6 @@ async def get_menu(option, message, user_id, start=0):
         back_to = "rclone"
     elif option in gdrive_options:
         back_to = "gdrive"
-    elif option in yt_options:
-        back_to = "yttools"
     elif option in ffset_options:
         back_to = "ffset"
     elif option in advanced_options:

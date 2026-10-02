@@ -36,6 +36,8 @@ async def arg_usage(_, query):
             "yt": ("y", YT_HELP_DICT),
             "clone": ("c", CLONE_HELP_DICT),
         }
+        if data[1] not in info:
+            return
         back_key, help_dict = info[data[1]]
         button = ButtonMaker()
         button.data_button("Back", f"help back {back_key} {pg_no}")
