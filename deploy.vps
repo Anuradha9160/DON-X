@@ -35,6 +35,7 @@ apt-get install -y -qq \
     git \
     curl \
     wget \
+    nodejs \
     lsof \
     procps \
     cpulimit \

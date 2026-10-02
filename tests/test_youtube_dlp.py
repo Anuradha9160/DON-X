@@ -1,13 +1,23 @@
 import pytest
 from unittest.mock import MagicMock
 from bot.helper.ext_utils.links_utils import is_youtube_link
-from bot.modules.ytdlp import extract_info, YtSelection, find_node_executable
+from bot.modules.ytdlp import extract_info, YtSelection, find_node_executable, setup_js_runtimes, log_ytdlp_startup_info
 
 
 def test_find_node_executable():
     node_path = find_node_executable()
     assert node_path is not None
     assert "node" in node_path.lower() or "deno" in node_path.lower() or "bun" in node_path.lower()
+
+
+def test_setup_js_runtimes(monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda rt: f"/usr/bin/{rt}" if rt in ("node", "deno") else None)
+    opts = {}
+    setup_js_runtimes(opts)
+    assert "js_runtimes" in opts
+    assert "node" in opts["js_runtimes"]
+    assert opts["js_runtimes"]["node"]["path"] == "/usr/bin/node"
+    assert list(opts["js_runtimes"].keys())[0] == "node"
 
 
 def test_is_youtube_link():

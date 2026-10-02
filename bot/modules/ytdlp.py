@@ -276,7 +276,7 @@ def log_ytdlp_startup_info():
         ejs_ver = "not installed"
 
     detected_runtimes = {
-        rt: path for rt in ("deno", "node", "bun") if (path := shutil.which(rt))
+        rt: path for rt in ("node", "deno", "bun") if (path := shutil.which(rt))
     }
     runtimes_str = (
         ", ".join(f"{k} ({v})" for k, v in detected_runtimes.items()) or "none"
@@ -298,7 +298,7 @@ def setup_js_runtimes(opts):
     log_ytdlp_startup_info()
     if "js_runtimes" not in opts:
         js_runtimes = {}
-        for rt in ("deno", "node", "bun"):
+        for rt in ("node", "deno", "bun"):
             if path := shutil.which(rt):
                 js_runtimes[rt] = {"path": path}
         if js_runtimes:
