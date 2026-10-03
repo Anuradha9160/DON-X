@@ -144,8 +144,10 @@ def _build_command_usage(help_dict, command_key):
 
 
 def create_help_buttons():
+    from .help_messages import YT_HELP_DICT
     _build_command_usage(MIRROR_HELP_DICT, "mirror")
     _build_command_usage(CLONE_HELP_DICT, "clone")
+    _build_command_usage(YT_HELP_DICT, "yt")
 
 
 def compare_versions(v1, v2):
