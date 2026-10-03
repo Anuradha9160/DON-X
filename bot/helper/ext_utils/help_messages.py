@@ -470,4 +470,42 @@ def get_help_string():
     return "\n".join(help_lines)
 
 
+yt = """<b>yt-dlp Supported Link Mirroring & Leeching</b>
+
+<code>/yt link</code>
+<code>/yl link</code>
+
+<b>Arguments:</b>
+• <code>-n new_name</code>: Custom output filename.
+• <code>-s</code>: Quality & format selection buttons.
+• <code>-opt options</code>: Custom yt-dlp option dict or pipe-separated string.
+• <code>-sp split_size</code>: Leech split size.
+• <code>-z</code>: Zip output after download.
+• <code>-b</code>: Bulk download from links in text file / reply.
+• <code>-i count</code>: Multi-part download.
+• <code>-up upload_path</code>: Custom upload destination.
+• <code>-m folder_name</code>: Folder name for same-directory downloads."""
+
+yt_opt = """<b>yt-dlp Options Format:</b>
+
+<b>String Format:</b>
+<code>-opt format:bv*+ba/b|check_certificate:False</code>
+
+<b>Dict Format:</b>
+<code>-opt {'format': 'bv*+ba/b', 'check_certificate': False}</code>"""
+
+YT_HELP_DICT = {
+    "main": yt,
+    "New-Name": f"{new_name}\nNote: Don't add file extension",
+    "Zip": zip_arg,
+    "Quality": qual,
+    "Options": yt_opt,
+    "Multi-Link": multi_link,
+    "Same-Directory": same_dir,
+    "Thumb": thumb,
+    "Split-Size": split_size,
+    "Upload-Destination": upload,
+}
+
+
 help_string = get_help_string()
