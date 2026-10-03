@@ -60,6 +60,7 @@ class BotCommands:
         "Memory": ["memory", "mem"],
         "RequestFF": ["requestff", "reqff"],
         "TaskM": ["taskm", "tm"],
+        "TaskUser": ["taskuser", "tu"],
     }
 
     @classmethod

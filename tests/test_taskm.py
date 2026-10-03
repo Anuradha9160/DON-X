@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock
 
-from bot.modules.taskm import build_taskm_view, _get_task_details
+from bot.modules.taskm import build_taskm_view, build_taskuser_view, _get_task_details
 from bot import user_data, task_dict, non_queued_dl, queued_dl
 from bot.helper.ext_utils.task_manager import check_running_tasks, start_from_queued
 
@@ -22,6 +22,19 @@ def test_build_taskm_view():
     text, buttons = build_taskm_view(12345, mock_user)
     assert "Task Manager" in text
     assert "Configured Task Limit:</b> <b>2</b>" in text
+    assert buttons is not None
+
+
+def test_build_taskuser_view():
+    mock_user = MagicMock()
+    mock_user.id = 54321
+    mock_user.mention.return_value = "NormalUser"
+
+    user_data[54321] = {"maxtask": 1}
+
+    text, buttons = build_taskuser_view(54321, mock_user)
+    assert "User Task Manager" in text
+    assert "Your Configured Task Limit:</b> <b>1</b>" in text
     assert buttons is not None
 
 
