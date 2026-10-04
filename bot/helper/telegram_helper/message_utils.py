@@ -44,12 +44,38 @@ from .button_build import ButtonMaker
 
 
 def _rich_fallback_text(rich_payload):
-    """Best-effort plain-text fallback for clients without Rich Message support."""
-    for attr in ("html", "markdown"):
+    """Convert a native Rich Message into safe plain text for fallback clients."""
+    for attr in ("html", "markdown", "text"):
         value = getattr(rich_payload, attr, None)
         if isinstance(value, str) and value:
             return value
-    return "⚠️ Rich Message is unavailable on this Telegram client."
+
+    def collect(obj):
+        if obj is None:
+            return []
+        if isinstance(obj, str):
+            return [obj]
+        out = []
+        for attr in ("text", "title", "summary", "items", "blocks", "rows", "cells"):
+            value = getattr(obj, attr, None)
+            if value is None:
+                continue
+            if isinstance(value, (list, tuple)):
+                for item in value:
+                    out.extend(collect(item))
+            else:
+                out.extend(collect(value))
+        return out
+
+    parts = [x.strip() for x in collect(rich_payload) if isinstance(x, str) and x.strip()]
+    if parts:
+        # Avoid duplicated nested text while preserving readable ordering.
+        result = []
+        for part in parts:
+            if not result or part != result[-1]:
+                result.append(part)
+        return "\n".join(result)[:4096]
+    return "⚠️ Rich Message is unavailable; showing a plain-text fallback."
 
 
 async def send_message(message, text, buttons=None, block=True, photo=None, **kwargs):
@@ -128,10 +154,11 @@ async def send_message(message, text, buttons=None, block=True, photo=None, **kw
                         **rich_kwargs,
                     )
                 return await TgClient.bot.send_message(chat_id=int(message), **rich_kwargs)
-            except (TypeError, AttributeError) as exc:
-                # Older Pyrogram-compatible clients may not expose Rich Message
-                # parameters. Do not crash a download/task because of UI only.
-                LOGGER.warning("Rich Message send unsupported; using plain fallback: %s", exc)
+            except Exception as exc:
+                # Rich UI is optional. Different Pyrogram/wzgram builds can raise
+                # TypeError, AttributeError, or wrapped errors while serializing
+                # native rich objects. Never let that break the actual task.
+                LOGGER.debug("Rich Message send unavailable; using plain fallback: %s", exc)
                 fallback = _rich_fallback_text(text)
                 if isinstance(message, Message):
                     return await message.reply(
@@ -203,8 +230,8 @@ async def edit_message(message, text, buttons=None, block=True, photo=None):
                     rich_text=text,
                     reply_markup=buttons,
                 )
-            except (TypeError, AttributeError) as exc:
-                LOGGER.warning("Rich Message edit unsupported; using plain fallback: %s", exc)
+            except Exception as exc:
+                LOGGER.debug("Rich Message edit unavailable; using plain fallback: %s", exc)
                 return await TgClient.bot.edit_message_text(
                     chat_id=message.chat.id,
                     message_id=message.id,
