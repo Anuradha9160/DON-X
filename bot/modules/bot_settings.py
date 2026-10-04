@@ -3,20 +3,7 @@ from asyncio import (
     sleep,
 )
 from ast import literal_eval
-from pyrogram import raw
 from pyrogram.enums import ButtonStyle
-from pyrogram.types import (
-    InputRichBlockDetails,
-    InputRichBlockDivider,
-    InputRichBlockFooter,
-    InputRichBlockList,
-    InputRichBlockListItem,
-    InputRichBlockParagraph,
-    InputRichBlockSectionHeading,
-    InputRichBlockTable,
-    InputRichBlockTableCell,
-    InputRichMessage,
-)
 from functools import partial
 from io import BytesIO
 from os import getcwd, getenv
@@ -83,7 +70,7 @@ handler_dict = {}
 DEFAULT_VALUES = {
     "LEECH_SPLIT_SIZE": TgClient.MAX_SPLIT_SIZE,
     "RSS_DELAY": 600,
-    "STATUS_UPDATE_INTERVAL": 15,
+    "STATUS_UPDATE_INTERVAL": 5,
     "SEARCH_LIMIT": 0,
     "UPSTREAM_BRANCH": "wzv3",
     "DEFAULT_UPLOAD": "rc",
@@ -385,29 +372,6 @@ LIMIT_UNITS = {
     "STATUS_LIMIT": " msgs",
 }
 
-RICH_STYLES = {
-    "b": raw.types.TextBold,
-    "i": raw.types.TextItalic,
-    "u": raw.types.TextUnderline,
-    "c": raw.types.TextFixed,
-    "m": raw.types.TextMarked,
-    "s": raw.types.TextStrike,
-}
-
-
-def rich_text(*parts):
-    texts = []
-    for part in parts:
-        if isinstance(part, str):
-            texts.append(raw.types.TextPlain(text=part))
-        else:
-            style, value = part
-            texts.append(
-                RICH_STYLES[style](text=raw.types.TextPlain(text=value))
-            )
-    return raw.types.TextConcat(texts=texts)
-
-
 async def get_buttons(key=None, edit_type=None, edit_mode=False):
     buttons = ButtonMaker()
     if key is None:
@@ -626,88 +590,23 @@ async def get_buttons(key=None, edit_type=None, edit_mode=False):
             buttons.data_button(
                 "⫸", f"botset start setlimit {start + 10}", position="l_body"
             )
-        rows = [
-            [
-                InputRichBlockTableCell(
-                    rich_text(k.removesuffix("_LIMIT").replace("_", " "))
-                ),
-                InputRichBlockTableCell(
-                    rich_text(("c", f"{v}{LIMIT_UNITS.get(k, ' GB')}")),
-                    align_right=True,
-                ),
-            ]
-            for k in LIMIT_VARS
-            if (v := Config.get(k))
+        active = [
+            (k.removesuffix("_LIMIT").replace("_", " "), Config.get(k), LIMIT_UNITS.get(k, " GB"))
+            for k in LIMIT_VARS if Config.get(k)
         ]
-        msg = InputRichMessage(
-            blocks=[
-                InputRichBlockSectionHeading(
-                    text=rich_text(("u", "Limit Settings")), size=3
-                ),
-                InputRichBlockParagraph(
-                    text=rich_text(
-                        ("m", f" {len(rows)} of {len(LIMIT_VARS)} active "),
-                    )
-                ),
-                InputRichBlockTable(
-                    title=rich_text(("b", "Active limits")),
-                    rows=rows,
-                    bordered=True,
-                    striped=True,
-                    compact=True,
-                )
-                if rows
-                else InputRichBlockParagraph(
-                    text=rich_text(("i", "No limits set, everything is unlimited."))
-                ),
-                InputRichBlockDivider(),
-                InputRichBlockDetails(
-                    summary=rich_text(("b", "How this works")),
-                    blocks=[
-                        InputRichBlockList(
-                            items=[
-                                InputRichBlockListItem(
-                                    text=rich_text(
-                                        "Send ",
-                                        ("c", "0"),
-                                        " to clear a limit and make it ",
-                                        ("i", "unlimited"),
-                                        ".",
-                                    )
-                                ),
-                                InputRichBlockListItem(
-                                    text=rich_text(
-                                        "Sizes are in ",
-                                        ("b", "GB"),
-                                        " unless the table shows another unit.",
-                                    )
-                                ),
-                                InputRichBlockListItem(
-                                    text=rich_text(
-                                        ("c", "CPU_LIMIT"),
-                                        " is a percentage, ",
-                                        ("c", "STATUS_LIMIT"),
-                                        " counts messages.",
-                                    )
-                                ),
-                                InputRichBlockListItem(
-                                    text=rich_text(
-                                        "Limits apply per task, not per user."
-                                    )
-                                ),
-                            ],
-                            ordered=False,
-                        )
-                    ],
-                ),
-                InputRichBlockFooter(
-                    text=rich_text(
-                        ("i", "Page "),
-                        ("b", f"{int(start / 10) + 1}"),
-                        ("i", f" of {-(-len(LIMIT_VARS) // 10)}"),
-                    )
-                ),
-            ]
+        rows = "\n".join(
+            f"• <b>{name}</b>: <code>{value}{unit}</code>" for name, value, unit in active
+        ) or "<i>No limits set — everything is unlimited.</i>"
+        msg = (
+            "<b>⚙️ Limit Settings</b>\n\n"
+            f"<i>{len(active)} of {len(LIMIT_VARS)} active</i>\n\n"
+            f"<b>Active limits</b>\n{rows}\n\n"
+            "<b>How this works</b>\n"
+            "• Send <code>0</code> to clear a limit and make it <i>unlimited</i>.\n"
+            "• Sizes are in <b>GB</b> unless another unit is shown.\n"
+            "• <code>CPU_LIMIT</code> is a percentage; <code>STATUS_LIMIT</code> counts messages.\n"
+            "• Limits apply per task, not per user.\n\n"
+            f"<i>Page {int(start / 10) + 1} of {-(-len(LIMIT_VARS) // 10)}</i>"
         )
     elif key == "private":
         if edit_mode:

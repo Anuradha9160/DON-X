@@ -43,61 +43,6 @@ from ..ext_utils.status_utils import get_readable_message
 from .button_build import ButtonMaker
 
 
-def _rich_fallback_text(rich_payload):
-    """Convert a native Rich Message/TL object to normal Telegram caption text."""
-    seen = set()
-
-    def collect(obj):
-        if obj is None:
-            return []
-        if isinstance(obj, str):
-            return [obj]
-        oid = id(obj)
-        if oid in seen:
-            return []
-        seen.add(oid)
-
-        out = []
-        # Pyrogram/wzgram TL objects commonly store fields in __dict__.
-        attrs = ("text", "title", "summary", "items", "blocks", "rows", "cells", "texts")
-        for attr in attrs:
-            try:
-                value = getattr(obj, attr, None)
-            except Exception:
-                value = None
-            if value is None:
-                continue
-            if isinstance(value, (list, tuple)):
-                for item in value:
-                    out.extend(collect(item))
-            else:
-                out.extend(collect(value))
-
-        # Handle raw TextPlain/TextConcat/Text* objects.
-        try:
-            fields = vars(obj)
-        except Exception:
-            fields = {}
-        for key, value in fields.items():
-            if key.startswith("_") or key in attrs:
-                continue
-            if isinstance(value, str):
-                out.append(value)
-            elif isinstance(value, (list, tuple)):
-                for item in value:
-                    out.extend(collect(item))
-            elif value is not obj:
-                out.extend(collect(value))
-        return out
-
-    parts = []
-    for value in collect(rich_payload):
-        value = value.strip()
-        if value and (not parts or value != parts[-1]):
-            parts.append(value)
-    return "\n".join(parts)[:4096] if parts else "HTR-X"
-
-
 async def send_message(message, text, buttons=None, block=True, photo=None, **kwargs):
     img_photo = choice(Config.IMAGES) if (photo == "IMAGES" and Config.USE_IMAGES and Config.IMAGES) else (None if photo == "IMAGES" else photo)
     try:
@@ -154,47 +99,8 @@ async def send_message(message, text, buttons=None, block=True, photo=None, **kw
             except Exception:
                 LOGGER.error("Error while sending photo", exc_info=True)
                 return
-        # Native Rich Messages are a Client.send_message() feature in wzgram.
-        # Message.reply() does not expose the ``rich_text`` keyword, so route
-        # rich payloads through the client and keep the reply relationship.
         if not isinstance(text, str):
-            rich_kwargs = dict(
-                text="",
-                rich_text=text,
-                disable_web_page_preview=True,
-                disable_notification=True,
-                reply_markup=buttons,
-                **kwargs,
-            )
-            try:
-                if isinstance(message, Message):
-                    rich_kwargs["reply_parameters"] = ReplyParameters(message_id=message.id)
-                    return await TgClient.bot.send_message(
-                        chat_id=message.chat.id,
-                        **rich_kwargs,
-                    )
-                return await TgClient.bot.send_message(chat_id=int(message), **rich_kwargs)
-            except Exception as exc:
-                # Rich UI is optional. Different Pyrogram/wzgram builds can raise
-                # TypeError, AttributeError, or wrapped errors while serializing
-                # native rich objects. Never let that break the actual task.
-                LOGGER.debug("Rich Message send unavailable; using plain fallback: %s", exc)
-                fallback = _rich_fallback_text(text)
-                if isinstance(message, Message):
-                    return await message.reply(
-                        text=fallback,
-                        reply_parameters=ReplyParameters(message_id=message.id),
-                        disable_web_page_preview=True,
-                        disable_notification=True,
-                        reply_markup=buttons,
-                    )
-                return await TgClient.bot.send_message(
-                    chat_id=int(message),
-                    text=fallback,
-                    disable_web_page_preview=True,
-                    disable_notification=True,
-                    reply_markup=buttons,
-                )
+            text = str(text)
 
         if isinstance(message, Message):
             return await message.reply(
@@ -240,24 +146,7 @@ async def edit_message(message, text, buttons=None, block=True, photo=None):
     img_photo = choice(Config.IMAGES) if (photo == "IMAGES" and Config.USE_IMAGES and Config.IMAGES) else (None if photo == "IMAGES" else photo)
     try:
         if not isinstance(text, str):
-            # Rich messages must be edited through the Client method; the
-            # bound Message.edit() shortcut does not accept ``rich_text``.
-            try:
-                return await TgClient.bot.edit_message_text(
-                    chat_id=message.chat.id,
-                    message_id=message.id,
-                    text="",
-                    rich_text=text,
-                    reply_markup=buttons,
-                )
-            except Exception as exc:
-                LOGGER.debug("Rich Message edit unavailable; using plain fallback: %s", exc)
-                return await TgClient.bot.edit_message_text(
-                    chat_id=message.chat.id,
-                    message_id=message.id,
-                    text=_rich_fallback_text(text),
-                    reply_markup=buttons,
-                )
+            text = str(text)
         if message.media:
             caption_text = text[:1020] + "..." if len(text) > 1024 else text
             if img_photo:

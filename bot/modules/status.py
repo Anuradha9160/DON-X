@@ -36,13 +36,6 @@ from ..helper.telegram_helper.message_utils import (
     edit_message,
 )
 from ..helper.telegram_helper.button_build import ButtonMaker
-from ..helper.telegram_helper.rich_utils import (
-    divider,
-    heading,
-    message as rich_message,
-    paragraph,
-    table,
-)
 
 
 @new_task
@@ -52,27 +45,16 @@ async def task_status(_, message):
     if count == 0:
         currentTime = get_readable_time(time() - bot_start_time)
         free = get_readable_file_size(disk_usage(DOWNLOAD_DIR).free)
-        msg = rich_message(
-            heading("📊 Active Bot Status", 2),
-            paragraph(("b", "No active tasks running.")),
-            table(
-                ["Metric", "Value"],
-                [
-                    ["⚡ CPU", f"{cpu_percent()}%"],
-                    ["💾 Free disk", f"{free} ({round(100 - disk_usage(DOWNLOAD_DIR).percent, 1)}%)"],
-                    ["🧠 RAM", f"{virtual_memory().percent}%"],
-                    ["⏱️ Uptime", currentTime],
-                ],
-                title="System",
-            ),
-            divider(),
-            paragraph(
-                "Use ",
-                ("c", f"/{BotCommands.StatusCommand[0]} me"),
-                " for your personal tasks or ",
-                ("c", f"/{BotCommands.StatusCommand[0]} user_id"),
-                " for a specific user.",
-            ),
+        msg = (
+            "<b>📊 Active Bot Status</b>\n\n"
+            "<i>No active tasks running.</i>\n\n"
+            "<b>🖥 System</b>\n"
+            f"⚡ CPU: <b>{cpu_percent()}%</b>\n"
+            f"💾 Free disk: <b>{free}</b> ({round(100 - disk_usage(DOWNLOAD_DIR).percent, 1)}%)\n"
+            f"🧠 RAM: <b>{virtual_memory().percent}%</b>\n"
+            f"⏱️ Uptime: <b>{currentTime}</b>\n\n"
+            f"Use <code>/{BotCommands.StatusCommand[0]} me</code> for personal tasks or "
+            f"<code>/{BotCommands.StatusCommand[0]} user_id</code> for a specific user."
         )
         reply_message = await send_message(message, msg)
         await auto_delete_message(message, reply_message)
@@ -235,34 +217,14 @@ async def status_pages(_, query):
                 case _:
                     tasks["Download"] += 1
 
-        msg = rich_message(
-            heading("📊 System Tasks Overview", 2),
-            table(
-                ["Task type", "Count"],
-                [
-                    ["Download", tasks["Download"]],
-                    ["Upload", tasks["Upload"]],
-                    ["Seed", tasks["Seed"]],
-                    ["Archive", tasks["Archive"]],
-                    ["Extract", tasks["Extract"]],
-                    ["Split", tasks["Split"]],
-                    ["Queue DL", tasks["QueueDl"]],
-                    ["Queue UP", tasks["QueueUp"]],
-                    ["Clone", tasks["Clone"]],
-                    ["Check", tasks["CheckUp"]],
-                    ["Paused", tasks["Pause"]],
-                    ["Sample video", tasks["SamVid"]],
-                    ["Convert", tasks["ConvertMedia"]],
-                    ["FFmpeg", tasks["FFmpeg"]],
-                ],
-                title="Active work",
-            ),
-            divider(),
-            paragraph(
-                "⚡ Download: ", ("b", f"{get_readable_file_size(dl_speed)}/s"),
-                "   ⚡ Upload: ", ("b", f"{get_readable_file_size(up_speed)}/s"),
-                "   🌱 Seed: ", ("b", f"{get_readable_file_size(seed_speed)}/s"),
-            ),
+        msg = (
+            "<b>📊 System Tasks Overview</b>\n\n"
+            "<b>Active work</b>\n"
+            + "\n".join(f"• {k}: <b>{v}</b>" for k, v in tasks.items())
+            + "\n\n"
+            f"⚡ Download: <b>{get_readable_file_size(dl_speed)}/s</b>\n"
+            f"⚡ Upload: <b>{get_readable_file_size(up_speed)}/s</b>\n"
+            f"🌱 Seed: <b>{get_readable_file_size(seed_speed)}/s</b>"
         )
         button = ButtonMaker()
         button.data_button("◀️ Back", f"status {data[1]} ref")

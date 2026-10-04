@@ -9,7 +9,7 @@ from re import findall, match, search, sub
 from niquests import Session, post, get
 from niquests.adapters import HTTPAdapter
 from time import sleep, time
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, quote, urlparse, urljoin
 try:
     from urllib3.util.retry import Retry
 except ImportError:
@@ -644,6 +644,9 @@ def gdflix(url):
 
         tree = HTML(res.text)
         base_url = res.url
+        if not base_url:
+            base_url = url
+
         parsed = urlparse(base_url)
         host = f"{parsed.scheme}://{parsed.netloc}"
 
@@ -706,6 +709,28 @@ def gdflix(url):
                 # A worker URL exposed directly on the main page is already
                 # the preferred Cloud Resume candidate.
                 candidates["cloud_resume"] = link
+
+        # Also catch JS/data attributes used by newer GDFlix layouts.
+        for node in tree.xpath("//*[@data-href or @data-url or @data-download]"):
+            for attr in ("data-href", "data-url", "data-download"):
+                value = (node.attrib.get(attr) or "").strip()
+                if not value:
+                    continue
+                link = urljoin(base_url, value)
+                low = link.lower()
+                if not link.startswith(("http://", "https://")):
+                    continue
+                if any(x in low for x in ("cloud-dl.", "workers.dev", "r2.dev")):
+                    candidates["cloud_resume"] = candidates["cloud_resume"] or link
+                elif "/download" in low or "/dl/" in low:
+                    candidates["direct_server"] = candidates["direct_server"] or link
+
+        # Raw URLs catch JS-generated download endpoints.
+        for found in findall(r'https?://[^\"\\\'<>\\s]+', res.text):
+            found = found.rstrip('\\\"\\\'<>),;')
+            low = found.lower()
+            if any(x in low for x in ("cloud-dl.", "workers.dev", "r2.dev")):
+                candidates["cloud_resume"] = candidates["cloud_resume"] or found
 
         # Resolve Cloud Resume. Current GDFlix commonly exposes it by first
         # opening /cloud/<token>/<file-id>, then showing cloud-dl.* workers.dev.

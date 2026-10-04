@@ -1,173 +1,154 @@
-# HTR-X
+# HTR-X — Ultra-Speed Telegram Mirror & Leech Bot
 
-**HTR-X** is a fast, configurable Telegram mirror/leech bot for VPS deployments. It combines Telegram MTProto transfers with Aria2, qBittorrent, Mega, NZB, Rclone, Google Drive, JDownloader, direct downloads, and yt-dlp.
+HTR-X is a Telegram mirror/leech bot focused on **fast downloads, high-speed Telegram transfers, reliable direct-link resolution, FFmpeg processing, YouTube downloads, GDFlix support, and modular storage/upload workflows**.
 
-## Highlights
+## What changed in this release
 
-- ⚡ Fast mirror/leech pipeline with queue and task controls
-- 🎬 YouTube/yt-dlp downloads with per-user cookies and Telegram session-aware workflows
-- 🔐 Per-user Telegram session strings for private/restricted Telegram links
-- 🧩 yt-dlp JavaScript challenge support through Deno or supported Node.js
-- ☁️ Mega downloads/uploads, including folder and nested-content workflows
-- 🎛️ Advanced merge, FFmpeg, metadata, thumbnail, track and media-processing tools
-- 🧭 Inline menus, pagination, progress/status messages and lightweight UI
-- 🐳 Docker and direct VPS/systemd deployment
+### Telegram UI
+- Completely removed native Telegram **Rich Message** / Rich TL message generation.
+- Removed the Rich Message fallback/conversion path.
+- All bot messages now use reliable normal Telegram HTML formatting.
+- UI uses clean **bold**, *italic*, `<code>monospace`, blockquotes, compact sections, and consistent buttons.
+- Removed Rich-specific dependencies from help, status, settings, and IMDb output.
+- Status/help/settings no longer attempt a second Rich-message request when Telegram rejects a payload.
 
-## Requirements
+### GDFlix
+- Fixed the missing `urljoin()` import that could break valid GDFlix links.
+- Supports normal `/file/` links and GDFlix packs.
+- Detects Cloud Resume, Instant DL, Cloud/R2 and Direct Server variants.
+- Handles relative links with the correct GDFlix origin.
+- Detects newer `data-href`, `data-url`, `data-download`, worker, R2 and JavaScript-generated URLs.
+- Uses fallback candidates when one GDFlix endpoint is unavailable.
+- Avoids falsely failing when a CDN does not support HEAD requests.
+- Pack links resolve each contained file independently.
 
-- Linux VPS (recommended)
-- Python 3.10+ for direct deployment
-- Telegram bot token, API ID and API hash
-- MongoDB
-- FFmpeg
-- Optional: Aria2, qBittorrent, rclone, SABnzbd, JDownloader, Google Drive, Mega and other integrations
+### Speed
+HTR-X now defaults to a more aggressive transfer profile:
+- Hyper Telegram pipeline: **64**
+- Hyper Telegram chunk: **8 MiB**
+- Stream pipeline: **32**
+- Stream clients per client: **12**
+- Status refresh: **5 seconds**
+- Hyper download remains enabled by default.
 
-## VPS deployment
+Actual speed still depends on Telegram/DC limits, source server/CDN, VPS network, CPU/RAM, disk I/O, and provider rate limits. These settings maximize concurrency without pretending that an unlimited network speed is possible.
+
+## Quick start
+
+### Docker
 
 ```bash
-git clone <your-htr-x-repository> HTR-X
+git clone <your-repository-url> HTR-X
 cd HTR-X
-chmod +x deploy.vps
-./deploy.vps
+docker compose up -d --build
 ```
 
-The deployment script creates the `htr_bot` systemd service. Check it with:
+### Existing installation
 
 ```bash
-systemctl status htr_bot
-journalctl -u htr_bot -f
+cd HTR-X-Main
+python3 -m compileall bot plugins tests
+bash start.sh
 ```
 
-## Configuration
+If the project is managed by systemd, make sure `ExecStart` points to the actual checkout directory.
 
-Configure the required values through the project's supported environment/configuration system. At minimum you normally need:
+## Required configuration
+
+Configure the values required by your deployment in `config.py` or through the project's supported database/config workflow:
 
 - `BOT_TOKEN`
 - `TELEGRAM_API`
 - `TELEGRAM_HASH`
 - `OWNER_ID`
-- `DATABASE_URL`
+- `DATABASE_URL` when database storage is enabled
 
-Only enable integrations for which you have valid credentials.
+Do not publish bot tokens, API hashes, session strings, cookies, passwords, or database credentials.
 
-## YouTube / yt-dlp
+## Speed tuning
 
-HTR-X supports per-user yt-dlp cookie files through the user settings. Keep exported cookies private and replace them when they expire.
+Recommended starting values:
 
-For YouTube JavaScript challenges, the runtime must be available **on the actual VPS/container running the bot**. HTR-X detects Deno first and only accepts Node.js versions supported by the installed yt-dlp release. The Dockerfile includes Deno and Node.js 20.
+```python
+USE_HYPER = True
+HYPER_THREADS = 0
+HYPER_PIPELINE = 64
+HYPER_CHUNK = 8 * 1024 * 1024
 
-Useful checks:
-
-```bash
-deno --version 2>/dev/null || true
-node --version
-yt-dlp --version
+STREAM_PIPELINE = 32
+STREAM_CHUNK = 2097152
+STREAM_PER_CLIENT = 12
+STATUS_UPDATE_INTERVAL = 5
 ```
 
-If the bot reports `The page needs to be reloaded`, `Requested format is not available`, or an authentication/challenge error, check the runtime, yt-dlp/yt-dlp-ejs compatibility and the user's cookie file.
+For a small VPS, reduce pipeline/client counts if memory usage becomes high. For a high-bandwidth VPS, these values can be increased carefully after measuring CPU, RAM, network and Telegram flood waits.
 
-## Telegram private-link sessions
+## GDFlix troubleshooting
 
-Users can configure their own Telegram session string from the bot's Telegram Session settings. When a user has configured one, HTR-X uses that **user's session** when resolving private Telegram links instead of relying only on the global owner/helper session.
+If a GDFlix URL fails:
 
-A configured session must belong to an account that can actually access the target private chat/message. Never share a session string with another person.
+1. Confirm the URL opens normally in a browser.
+2. Retry the bot after a short delay if the provider/CDN has expired the generated link.
+3. Check the bot log for the resolver's candidate/fallback error.
+4. Make sure the VPS can reach the GDFlix domain and its CDN.
+5. Test with a normal `/file/` URL before testing a large pack.
+6. Do not hard-code a temporary CDN URL into the bot; GDFlix generated URLs can expire.
 
-## Mega
+The resolver intentionally tries multiple download variants instead of assuming one permanent endpoint.
 
-HTR-X targets **MegaSDK v10.20.20** in its engine/version metadata and deployment configuration. The project supports both the native `megasdk` import path and the compatible `mega` Python wrapper as fallback paths.
+## YouTube
 
-> Note: the public PyPI `mega.py` package is a separate Python wrapper and its published release number is not the native Mega SDK version. HTR-X therefore does not pretend that `pip install mega.py` itself installs native MegaSDK 10.20.20.
+HTR-X can use yt-dlp and configured cookies/JS runtimes where required by the target platform. Keep cookies private and use a valid Netscape cookie file when a site requires authenticated access.
 
-Mega workflows include account login, public links, folder links, nested folders and multi-file downloads where supported by the active SDK/API implementation.
+## FFmpeg
 
-## UI
-
-The bot uses compact status messages and inline controls with suitable emojis for common states:
-
-- ⬇️ Downloading
-- ⬆️ Uploading
-- ⚙️ Processing
-- ⏳ Queued
-- ✅ Completed
-- ❌ Failed
-- 🔐 Authentication/session
-- ☁️ Cloud/Mega
-- 🎬 YouTube/media
-
-## Troubleshooting
-
-### `Private: Please report!`
-
-Update HTR-X and ensure the user has configured a valid Telegram session string with access to the private chat. The resolver now attempts the requesting user's configured session.
-
-### YouTube has no downloadable formats
-
-Check:
-
-```bash
-which deno
-deno --version
-node --version
-yt-dlp --version
-python -c "import yt_dlp; print(yt_dlp.version.__version__)"
-```
-
-Then refresh the user's cookie export if the video requires authentication.
-
-### Mega SDK unavailable
-
-Check the installed Python environment and import path:
-
-```bash
-python -c "from mega import MegaApi; print(MegaApi)"
-```
-
-If your deployment uses a native `megasdk` build, verify that its native library and Python bindings are installed together.
-
-## Project layout
-
-```text
-HTR-X/
-├── bot/                 # Telegram bot and transfer engines
-├── configs/             # Service configuration
-├── docs/                # Documentation/assets
-├── plugins/             # Optional plugins
-├── web/                 # Web/selector UI
-├── Dockerfile
-├── docker-compose.yml
-├── deploy.vps
-├── requirements.txt
-└── README.md
-```
+FFmpeg-based operations can be CPU intensive. The bot supports configurable processing options and limits. Keep enough CPU/RAM available when running downloads and encoding simultaneously.
 
 ## Security
 
-- Never commit `BOT_TOKEN`, API credentials, cookies, or Telegram session strings.
-- Treat user session strings as full account credentials.
-- Restrict VPS access and protect MongoDB/Redis endpoints.
-- Use fresh cookie exports when required and remove old credentials from logs.
+- Never commit `cookies.txt`, `.netrc`, session strings, API credentials, or database URLs.
+- Restrict owner/sudo settings carefully.
+- Use private dumps/auth chats only where the bot account has permission.
+- Keep the VPS operating system and Python dependencies updated.
+- Do not expose internal service ports unnecessarily.
 
-## Credits
+## Diagnostics
 
-HTR-X is based on the upstream WZML-X project and retains required upstream technical compatibility where necessary. Upstream references are kept for compatibility and attribution; the user-facing project branding is **HTR-X**.
+Compile all Python modules:
+
+```bash
+python3 -m compileall bot plugins tests
+```
+
+Run the regression tests:
+
+```bash
+pytest -q
+```
+
+Check service status:
+
+```bash
+systemctl status wzml_bot --no-pager
+```
+
+Follow logs:
+
+```bash
+journalctl -u wzml_bot -f
+```
+
+## Project structure
+
+- `bot/` — Telegram bot and core task logic
+- `bot/helper/mirror_leech_utils/` — download/upload engines and resolvers
+- `bot/helper/telegram_helper/` — Telegram messaging, buttons and transfers
+- `plugins/` — optional plugin modules
+- `tests/` — regression and feature tests
+- `web/` — web/stream components
+- `deploy.vps` — VPS deployment helper
+- `docker-compose.yml` — container deployment
 
 ## License
 
-See [LICENSE](LICENSE).
-
-
-## 🎬 HTR-X Track Merge
-
-- `/merge` (`/tmerge`) supports a replied video plus external **audio tracks and subtitles**.
-- Add tracks from Telegram files or direct download URLs.
-- For extensionless URLs use `audio|URL` or `sub|URL`.
-- Interactive planner supports track reorder, remove, output rename, and **audio/subtitle language + title editing**.
-- `🚀 Done & Start` starts FFmpeg muxing immediately.
-- `/merge` and all plugin aliases automatically honor `CMD_SUFFIX`.
-
-## 📊 MediaInfo
-
-- `/mediainfo` and `/mi` honor `CMD_SUFFIX`.
-- Reply to a video/audio/document or pass a direct download URL.
-- MediaInfo links are published through **PastyX** when available, with Telegraph fallback.
-- URL inputs are downloaded completely before MediaInfo analysis (not just the first chunk).
+Use the license and upstream notices included with the project. HTR-X modifications should preserve applicable upstream attribution and licenses.
