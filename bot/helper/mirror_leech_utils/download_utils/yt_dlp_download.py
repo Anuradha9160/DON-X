@@ -16,7 +16,11 @@ from ...ext_utils.task_manager import (
     limit_checker,
 )
 from ...mirror_leech_utils.status_utils.queue_status import QueueStatus
-from ...ext_utils.cookie_utils import describe_cookie_report, ensure_cookie_file
+from ...ext_utils.cookie_utils import (
+    describe_cookie_report,
+    ensure_cookie_file,
+    get_social_cookie_file,
+)
 from ...telegram_helper.message_utils import send_message, send_status_message
 from ..status_utils.yt_dlp_status import YtDlpStatus
 
