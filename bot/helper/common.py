@@ -1836,9 +1836,19 @@ class TaskConfig:
         a_files.sort(key=lambda x: natural_key(ospath.basename(x)))
         s_files.sort(key=lambda x: natural_key(ospath.basename(x)))
 
+        # Merge policy: a video is mandatory. Audio and subtitles are optional.
+        # Use every available audio/subtitle input when a video is present.
+        # Never attempt an audio-only or subtitle-only merge.
+        if not v_files:
+            LOGGER.info(
+                "Merge skipped: video is required; found %d audio and %d subtitle files.",
+                len(a_files), len(s_files),
+            )
+            return dl_path
+
         total_inputs = len(v_files) + len(a_files) + len(s_files)
         if total_inputs < 2 and len(v_files) < 2:
-            LOGGER.info("Merge skipped: Less than 2 mergeable files found.")
+            LOGGER.info("Merge skipped: video only; no additional tracks to merge.")
             if custom_name and len(v_files) == 1:
                 single_v = v_files[0]
                 parent_d = ospath.dirname(single_v)
@@ -2107,7 +2117,11 @@ class TaskConfig:
                     await delete_message(prompt_msg)
             s_langs.append(lang)
 
-        LOGGER.info(f"Merging {len(v_files)} videos, {len(a_files)} audio, {len(s_files)} subtitles into {output_file}")
+        LOGGER.info(
+            f"Merging {len(v_files)} video(s) + {len(a_files)} audio track(s) + "
+            f"{len(s_files)} subtitle track(s) into {output_file}; "
+            "video required, optional tracks included when available."
+        )
         self.progress = True
         res = await ffmpeg.merge_tracks(v_files, a_files, s_files, output_file, gid, a_langs=a_langs, s_langs=s_langs)
 

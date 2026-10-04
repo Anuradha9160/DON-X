@@ -43,6 +43,15 @@ from ..ext_utils.status_utils import get_readable_message
 from .button_build import ButtonMaker
 
 
+def _rich_fallback_text(rich_payload):
+    """Best-effort plain-text fallback for clients without Rich Message support."""
+    for attr in ("html", "markdown"):
+        value = getattr(rich_payload, attr, None)
+        if isinstance(value, str) and value:
+            return value
+    return "⚠️ Rich Message is unavailable on this Telegram client."
+
+
 async def send_message(message, text, buttons=None, block=True, photo=None, **kwargs):
     img_photo = choice(Config.IMAGES) if (photo == "IMAGES" and Config.USE_IMAGES and Config.IMAGES) else (None if photo == "IMAGES" else photo)
     try:
@@ -99,8 +108,9 @@ async def send_message(message, text, buttons=None, block=True, photo=None, **kw
             except Exception:
                 LOGGER.error("Error while sending photo", exc_info=True)
                 return
-        # wzgram supports native Telegram Rich Messages through the
-        # ``rich_text`` argument. Keep plain text behavior unchanged.
+        # Native Rich Messages are a Client.send_message() feature in wzgram.
+        # Message.reply() does not expose the ``rich_text`` keyword, so route
+        # rich payloads through the client and keep the reply relationship.
         if not isinstance(text, str):
             rich_kwargs = dict(
                 text="",
@@ -110,10 +120,34 @@ async def send_message(message, text, buttons=None, block=True, photo=None, **kw
                 reply_markup=buttons,
                 **kwargs,
             )
-            if isinstance(message, Message):
-                rich_kwargs["reply_parameters"] = ReplyParameters(message_id=message.id)
-                return await message.reply(**rich_kwargs)
-            return await TgClient.bot.send_message(chat_id=int(message), **rich_kwargs)
+            try:
+                if isinstance(message, Message):
+                    rich_kwargs["reply_parameters"] = ReplyParameters(message_id=message.id)
+                    return await TgClient.bot.send_message(
+                        chat_id=message.chat.id,
+                        **rich_kwargs,
+                    )
+                return await TgClient.bot.send_message(chat_id=int(message), **rich_kwargs)
+            except (TypeError, AttributeError) as exc:
+                # Older Pyrogram-compatible clients may not expose Rich Message
+                # parameters. Do not crash a download/task because of UI only.
+                LOGGER.warning("Rich Message send unsupported; using plain fallback: %s", exc)
+                fallback = _rich_fallback_text(text)
+                if isinstance(message, Message):
+                    return await message.reply(
+                        text=fallback,
+                        reply_parameters=ReplyParameters(message_id=message.id),
+                        disable_web_page_preview=True,
+                        disable_notification=True,
+                        reply_markup=buttons,
+                    )
+                return await TgClient.bot.send_message(
+                    chat_id=int(message),
+                    text=fallback,
+                    disable_web_page_preview=True,
+                    disable_notification=True,
+                    reply_markup=buttons,
+                )
 
         if isinstance(message, Message):
             return await message.reply(
@@ -159,13 +193,24 @@ async def edit_message(message, text, buttons=None, block=True, photo=None):
     img_photo = choice(Config.IMAGES) if (photo == "IMAGES" and Config.USE_IMAGES and Config.IMAGES) else (None if photo == "IMAGES" else photo)
     try:
         if not isinstance(text, str):
-            return await TgClient.bot.edit_message_text(
-                message.chat.id,
-                message.id,
-                "",
-                rich_text=text,
-                reply_markup=buttons,
-            )
+            # Rich messages must be edited through the Client method; the
+            # bound Message.edit() shortcut does not accept ``rich_text``.
+            try:
+                return await TgClient.bot.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=message.id,
+                    text="",
+                    rich_text=text,
+                    reply_markup=buttons,
+                )
+            except (TypeError, AttributeError) as exc:
+                LOGGER.warning("Rich Message edit unsupported; using plain fallback: %s", exc)
+                return await TgClient.bot.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=message.id,
+                    text=_rich_fallback_text(text),
+                    reply_markup=buttons,
+                )
         if message.media:
             caption_text = text[:1020] + "..." if len(text) > 1024 else text
             if img_photo:

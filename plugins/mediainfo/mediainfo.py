@@ -1,10 +1,10 @@
 from os import getcwd, path as ospath
-from re import search
+from re import search, sub as re_sub
 from shlex import split
 
 from aiofiles import open as aiopen
 from aiofiles.os import mkdir, path as aiopath, remove as aioremove
-from aiohttp import ClientSession
+from aiohttp import ClientSession, ClientTimeout
 
 from bot import LOGGER
 from bot.core.tg_client import TgClient
@@ -24,18 +24,25 @@ async def gen_mediainfo(message, link=None, media=None, mmsg=None):
             await mkdir(path)
         file_size = 0
         if link:
-            filename = search(".+/(.+)", link).group(1)
+            clean_link = link.strip().split()[0].rstrip("),]}>")
+            filename = ospath.basename(clean_link.split("?", 1)[0].split("#", 1)[0]) or "media"
+            filename = re_sub(r"[^A-Za-z0-9._-]+", "_", filename)[:180] or "media"
             des_path = ospath.join(path, filename)
             headers = {
                 "user-agent": "Mozilla/5.0 (Linux; Android 12; 2201116PI) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Mobile Safari/537.36"
             }
             async with ClientSession() as session:
-                async with session.get(link, headers=headers) as response:
-                    file_size = int(response.headers.get("Content-Length", 0))
+                async with session.get(
+                    clean_link,
+                    headers=headers,
+                    allow_redirects=True,
+                    timeout=ClientTimeout(total=3600),
+                ) as response:
+                    response.raise_for_status()
+                    file_size = int(response.headers.get("Content-Length", 0) or 0)
                     async with aiopen(des_path, "wb") as f:
-                        async for chunk in response.content.iter_chunked(10000000):
+                        async for chunk in response.content.iter_chunked(4 * 1024 * 1024):
                             await f.write(chunk)
-                            break
         elif media:
             des_path = ospath.join(path, media.file_name)
             file_size = media.file_size
@@ -59,9 +66,45 @@ async def gen_mediainfo(message, link=None, media=None, mmsg=None):
     if not tc or not tc.strip():
         return await edit_message(temp_send, "MediaInfo Generation Failed: No content extracted from file.")
 
-    link_id = (await telegraph.create_page(title="MediaInfo X", content=tc))["path"]
+    # Create a clean shareable Graph.org MediaInfo page first.
+    # Format: https://graph.org/MediaInfo-X-DD-MM-xxxxx
+    page_url = ""
+    try:
+        from datetime import datetime
+        import random
+        title = f"MediaInfo-X-{datetime.now().strftime("%d-%m")}-{random.randint(10000, 99999)}"
+        page = await telegraph.create_page(title=title, content=tc)
+        path = page.get("path", "") if isinstance(page, dict) else ""
+        if path:
+            page_url = path if path.startswith("http") else f"https://graph.org/{path.lstrip("/")}"
+    except Exception as e:
+        LOGGER.warning(f"Graph.org MediaInfo page creation failed: {e}")
+
+    # Fallback to PastyX if Telegraph/Graph.org is unavailable.
+    if not page_url:
+        try:
+            async with ClientSession() as session:
+                async with session.post(
+                    "https://pastyx.pages.dev/api/paste",
+                    json={
+                        "content": tc,
+                        "title": f"MediaInfo · {ospath.basename(des_path or 'media')}",
+                        "author": "HTR-X",
+                        "expiry": "never",
+                    },
+                    timeout=ClientTimeout(total=30),
+                ) as response:
+                    if response.status == 200:
+                        payload = await response.json(content_type=None)
+                        page_url = payload.get("url", "")
+        except Exception as e:
+            LOGGER.warning(f"PastyX MediaInfo upload failed: {e}")
+
+    if not page_url:
+        return await edit_message(temp_send, "❌ MediaInfo page creation failed.")
+
     await temp_send.edit(
-        f"<b>MediaInfo:</b>\n\n➲ <b>Link :</b> https://graph.org/{link_id}",
+        f"<b>MediaInfo:</b>\n\n➲ <b>Link :</b> {page_url}",
         disable_web_page_preview=False,
     )
 

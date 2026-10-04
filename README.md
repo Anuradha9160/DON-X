@@ -154,3 +154,20 @@ HTR-X is based on the upstream WZML-X project and retains required upstream tech
 ## License
 
 See [LICENSE](LICENSE).
+
+
+## 🎬 HTR-X Track Merge
+
+- `/merge` (`/tmerge`) supports a replied video plus external **audio tracks and subtitles**.
+- Add tracks from Telegram files or direct download URLs.
+- For extensionless URLs use `audio|URL` or `sub|URL`.
+- Interactive planner supports track reorder, remove, output rename, and **audio/subtitle language + title editing**.
+- `🚀 Done & Start` starts FFmpeg muxing immediately.
+- `/merge` and all plugin aliases automatically honor `CMD_SUFFIX`.
+
+## 📊 MediaInfo
+
+- `/mediainfo` and `/mi` honor `CMD_SUFFIX`.
+- Reply to a video/audio/document or pass a direct download URL.
+- MediaInfo links are published through **PastyX** when available, with Telegraph fallback.
+- URL inputs are downloaded completely before MediaInfo analysis (not just the first chunk).
