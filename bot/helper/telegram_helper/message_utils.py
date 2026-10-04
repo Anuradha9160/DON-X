@@ -44,20 +44,27 @@ from .button_build import ButtonMaker
 
 
 def _rich_fallback_text(rich_payload):
-    """Convert a native Rich Message into safe plain text for fallback clients."""
-    for attr in ("html", "markdown", "text"):
-        value = getattr(rich_payload, attr, None)
-        if isinstance(value, str) and value:
-            return value
+    """Convert a native Rich Message/TL object to normal Telegram caption text."""
+    seen = set()
 
     def collect(obj):
         if obj is None:
             return []
         if isinstance(obj, str):
             return [obj]
+        oid = id(obj)
+        if oid in seen:
+            return []
+        seen.add(oid)
+
         out = []
-        for attr in ("text", "title", "summary", "items", "blocks", "rows", "cells"):
-            value = getattr(obj, attr, None)
+        # Pyrogram/wzgram TL objects commonly store fields in __dict__.
+        attrs = ("text", "title", "summary", "items", "blocks", "rows", "cells", "texts")
+        for attr in attrs:
+            try:
+                value = getattr(obj, attr, None)
+            except Exception:
+                value = None
             if value is None:
                 continue
             if isinstance(value, (list, tuple)):
@@ -65,17 +72,30 @@ def _rich_fallback_text(rich_payload):
                     out.extend(collect(item))
             else:
                 out.extend(collect(value))
+
+        # Handle raw TextPlain/TextConcat/Text* objects.
+        try:
+            fields = vars(obj)
+        except Exception:
+            fields = {}
+        for key, value in fields.items():
+            if key.startswith("_") or key in attrs:
+                continue
+            if isinstance(value, str):
+                out.append(value)
+            elif isinstance(value, (list, tuple)):
+                for item in value:
+                    out.extend(collect(item))
+            elif value is not obj:
+                out.extend(collect(value))
         return out
 
-    parts = [x.strip() for x in collect(rich_payload) if isinstance(x, str) and x.strip()]
-    if parts:
-        # Avoid duplicated nested text while preserving readable ordering.
-        result = []
-        for part in parts:
-            if not result or part != result[-1]:
-                result.append(part)
-        return "\n".join(result)[:4096]
-    return "⚠️ Rich Message is unavailable; showing a plain-text fallback."
+    parts = []
+    for value in collect(rich_payload):
+        value = value.strip()
+        if value and (not parts or value != parts[-1]):
+            parts.append(value)
+    return "\n".join(parts)[:4096] if parts else "HTR-X"
 
 
 async def send_message(message, text, buttons=None, block=True, photo=None, **kwargs):
