@@ -779,7 +779,12 @@ class TaskListener(TaskConfig):
         await start_from_queued()
 
     async def on_download_error(self, error, button=None, is_limit=False):
-        if not self.is_cancelled and not is_limit and getattr(self, "_retry_count", 0) < 2:
+        if (
+            not self.is_cancelled
+            and not is_limit
+            and "Requested format is not available" not in str(error)
+            and getattr(self, "_retry_count", 0) < 2
+        ):
             self._retry_count = getattr(self, "_retry_count", 0) + 1
             LOGGER.warning(
                 f"Download failed for {self.name or self.link}: {error}. Retrying attempt {self._retry_count}/2 silently..."

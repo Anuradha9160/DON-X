@@ -23,6 +23,7 @@ from ..helper.listeners.task_listener import TaskListener
 from ..helper.mirror_leech_utils.download_utils.yt_dlp_download import (
     YoutubeDLHelper,
     YT_EXTRACTOR_ARGS,
+    YT_JS_OPTS,
     get_cookie_file,
 )
 from ..helper.telegram_helper.button_build import ButtonMaker
@@ -488,6 +489,7 @@ class YtDlp(TaskListener):
             "usenetrc": True,
             "cookiefile": cookie_to_use,
             "extractor_args": YT_EXTRACTOR_ARGS,
+            **YT_JS_OPTS,
         }
         if opt:
             if isinstance(opt, str):

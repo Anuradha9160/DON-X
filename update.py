@@ -178,6 +178,10 @@ def _update_packages():
         pip_cmd = "uv pip"
     scall(f"{pip_cmd} install -U -r requirements.txt", shell=True)
     scall(f"{pip_cmd} install --no-deps mega.py>=1.0.8", shell=True)
+    # One-time (per boot) yt-dlp nightly: YouTube breaks stable builds often
+    # ("page needs to be reloaded" / "Requested format is not available").
+    # Installed together with its extras so yt-dlp-ejs stays version-matched.
+    scall(f'{pip_cmd} install -U --pre "yt-dlp[default,curl-cffi]"', shell=True)
     _LOGGER.info("Successfully Updated all the Packages!")
 
 

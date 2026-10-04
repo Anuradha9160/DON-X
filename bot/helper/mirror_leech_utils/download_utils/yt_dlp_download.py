@@ -1,3 +1,4 @@
+from html import escape
 from logging import getLogger
 from os import path as ospath, listdir
 from re import search as re_search
@@ -14,7 +15,7 @@ from ...ext_utils.task_manager import (
     limit_checker,
 )
 from ...mirror_leech_utils.status_utils.queue_status import QueueStatus
-from ...telegram_helper.message_utils import send_status_message
+from ...telegram_helper.message_utils import send_message, send_status_message
 from ..status_utils.yt_dlp_status import YtDlpStatus
 
 LOGGER = getLogger(__name__)
@@ -25,7 +26,16 @@ LOGGER = getLogger(__name__)
 # cookies are used. Exclude it. A user's own `extractor_args` (-opt or
 # YT_DLP_OPTIONS) is applied later and overrides this default.
 YT_EXTRACTOR_ARGS = {
-    "youtube": {"player_client": ["web_safari", "web_embedded", "-tv_downgraded"]}
+    "youtube": {
+        "player_client": ["default", "web_safari", "web_embedded", "-tv_downgraded"]
+    }
+}
+# Formats are dropped (-> "Requested format is not available") when YouTube's
+# JS challenge can't be solved. Allow both runtimes the Dockerfile installs and
+# let yt-dlp fetch a matching solver script if the pip yt-dlp-ejs is out of sync.
+YT_JS_OPTS = {
+    "js_runtimes": {"deno": {}, "node": {}},
+    "remote_components": ["ejs:github"],
 }
 
 
@@ -92,6 +102,7 @@ class YoutubeDLHelper:
             "trim_file_name": 220,
             "ffmpeg_location": f"/bin/{BinConfig.FFMPEG_NAME}",
             "extractor_args": YT_EXTRACTOR_ARGS,
+            **YT_JS_OPTS,
             "fragment_retries": 10,
             "retries": 10,
             "retry_sleep_functions": {
@@ -165,13 +176,71 @@ class YoutubeDLHelper:
         self._listener.is_cancelled = True
         async_to_sync(self._listener.on_download_error, error)
 
+    def _send_formats_table(self):
+        """Tell the user which formats really exist (like `yt-dlp -F`)."""
+        opts = {
+            k: v
+            for k, v in self.opts.items()
+            if k not in ("format", "postprocessors", "progress_hooks", "logger")
+        }
+        opts.update(
+            quiet=True,
+            no_warnings=True,
+            ignore_no_formats_error=True,
+            playlist_items="1",
+        )
+        try:
+            with YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(self._listener.link, download=False)
+                if info and info.get("entries"):
+                    info = next((e for e in info["entries"] if e), None)
+                table = ydl.render_formats_table(info) if info else None
+        except Exception as e:
+            LOGGER.error(f"Could not list formats: {e}")
+            return
+        if not table:
+            table = "No downloadable formats were returned by YouTube."
+        lines = table.splitlines()
+        text, size = [], 0
+        for line in lines:
+            if size + len(line) > 3300:
+                text.append("...")
+                break
+            text.append(line)
+            size += len(line) + 1
+        msg = (
+            "<b>Requested format is not available.</b> Formats YouTube returned:\n"
+            f"<pre>{escape(chr(10).join(text))}</pre>\n"
+            "Only storyboard (<code>sb*</code>) rows = YouTube is hiding the real streams: "
+            "refresh cookies, update yt-dlp and make sure deno/node works."
+        )
+        async_to_sync(send_message, self._listener.message, msg)
+
     def _extract_meta_data(self):
+        qual = self.opts.get("format") or "bv*+ba/b"
+        candidates = [qual]
+        if not qual.startswith("ba/b"):
+            candidates.append("bv*+ba/b")
+        candidates.append("b")
+        candidates = list(dict.fromkeys(candidates))
+        for idx, fmt in enumerate(candidates):
+            self.opts["format"] = fmt
+            last = idx == len(candidates) - 1
+            if self._extract_meta_data_once(last) != "retry":
+                return
+            LOGGER.warning(f"Format '{fmt}' not available, trying '{candidates[idx + 1]}'")
+
+    def _extract_meta_data_once(self, last=True):
         with YoutubeDL(self.opts) as ydl:
             try:
                 result = ydl.extract_info(self._listener.link, download=False)
                 if result is None:
                     raise ValueError("Info result is None")
             except Exception as e:
+                if "Requested format is not available" in str(e):
+                    if not last:
+                        return "retry"
+                    self._send_formats_table()
                 return self._on_download_error(str(e))
             if self.is_playlist:
                 self.playlist_count = result.get("playlist_count", 0)
