@@ -25,6 +25,7 @@ from ..helper.mirror_leech_utils.download_utils.yt_dlp_download import (
     YT_EXTRACTOR_ARGS,
     YT_JS_OPTS,
     get_cookie_file,
+    get_social_cookie_file,
     get_yt_js_options,
     is_youtube_link,
     probe_youtube,
@@ -290,6 +291,7 @@ class YtDlp(TaskListener):
         super().__init__()
         self.is_ytdlp = True
         self.is_leech = is_leech
+        self.is_social = bool(kwargs.get('is_social', False))
 
     async def new_event(self):
         text = self.message.text.split("\n")
@@ -483,9 +485,14 @@ class YtDlp(TaskListener):
 
         self._set_mode_engine()
 
-        cookie_to_use = get_cookie_file(self.user_dict)
+        cookie_to_use = (
+            get_social_cookie_file(self.user_id, self.link, self.user_dict)
+            if self.is_social
+            else get_cookie_file(self.user_dict)
+        )
         LOGGER.info(
-            f"Using cookies.txt file: {cookie_to_use} | User ID : {self.user_id}"
+            f"Using {'social' if self.is_social else 'YouTube'} cookies file: "
+            f"{cookie_to_use} | User ID : {self.user_id}"
         )
 
         options = {
@@ -576,3 +583,23 @@ async def ytdl_leech(client, message):
         await message.reply("YT-DLP downloads are currently disabled by the Bot Owner.")
         return
     bot_loop.create_task(YtDlp(client, message, is_leech=True).new_event())
+
+
+async def socialdl(client, message):
+    if Config.DISABLE_YTDLP:
+        await message.reply("YT-DLP downloads are currently disabled by the Bot Owner.")
+        return
+    if not message.from_user:
+        await message.reply("❌ Social cookie/download commands require a user account.")
+        return
+    bot_loop.create_task(YtDlp(client, message, is_social=True).new_event())
+
+
+async def socialdl_leech(client, message):
+    if Config.DISABLE_YTDLP:
+        await message.reply("YT-DLP downloads are currently disabled by the Bot Owner.")
+        return
+    if not message.from_user:
+        await message.reply("❌ Social cookie/download commands require a user account.")
+        return
+    bot_loop.create_task(YtDlp(client, message, is_social=True, is_leech=True).new_event())

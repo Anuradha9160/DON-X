@@ -170,3 +170,54 @@ def describe_cookie_report(report):
     extra = f", {report['dropped']} bad line(s) removed" if report.get("dropped") else ""
     fixed = ", format auto-fixed" if report.get("fixed") else ""
     return f"{report['total']} cookies ({report['google']} Google/YouTube); {login}{extra}{fixed}"
+
+
+SOCIAL_COOKIE_PLATFORMS = {
+    "facebook": ("Facebook", ("facebook.com", "fb.com")),
+    "instagram": ("Instagram", ("instagram.com",)),
+    "x": ("X / Twitter", ("x.com", "twitter.com")),
+    "tiktok": ("TikTok", ("tiktok.com",)),
+    "reddit": ("Reddit", ("reddit.com",)),
+    "generic": ("Generic Social", ()),
+}
+
+
+def social_cookie_path(user_id, platform):
+    """Return the per-user cookie path for a social platform."""
+    platform = str(platform).lower().strip()
+    if platform not in SOCIAL_COOKIE_PLATFORMS:
+        platform = "generic"
+    return f"cookies/{user_id}/social_{platform}.txt"
+
+
+def get_social_platform(url):
+    """Map a URL to a cookie profile. Unknown yt-dlp sites use generic."""
+    from urllib.parse import urlparse
+    host = (urlparse(str(url)).hostname or "").lower()
+    host = host[4:] if host.startswith("www.") else host
+    for platform, (_, domains) in SOCIAL_COOKIE_PLATFORMS.items():
+        if any(host == d or host.endswith("." + d) for d in domains):
+            return platform
+    if host.endswith("youtube.com") or host.endswith("youtu.be"):
+        return "youtube"
+    return "generic"
+
+
+def get_social_cookie_file(user_id, url, user_dict=None):
+    """Prefer a platform-specific cookie, then generic, then the legacy user cookie."""
+    user_dict = user_dict or {}
+    platform = get_social_platform(url)
+    candidates = []
+    if platform != "youtube":
+        candidates.append(social_cookie_path(user_id, platform))
+    candidates.append(social_cookie_path(user_id, "generic"))
+    legacy = user_dict.get("USER_COOKIE_FILE", "")
+    if legacy:
+        candidates.append(legacy)
+    if ospath.exists("cookies.txt"):
+        candidates.append("cookies.txt")
+    for candidate in candidates:
+        if candidate and ospath.exists(candidate):
+            ensure_cookie_file(candidate)
+            return candidate
+    return None

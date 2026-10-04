@@ -245,6 +245,23 @@ async def add_handlers():
     )
     TgClient.bot.add_handler(
         MessageHandler(
+            socialdl,
+            filters=command(BotCommands.SocialdlCommand, case_sensitive=True)
+            & CustomFilters.authorized,
+        )
+    )
+    TgClient.bot.add_handler(
+        MessageHandler(
+            cookiesettings,
+            filters=command(BotCommands.CookieSettingsCommand, case_sensitive=True)
+            & CustomFilters.authorized,
+        )
+    )
+    TgClient.bot.add_handler(
+        CallbackQueryHandler(social_cookie_callback, filters=regex("^scookie"))
+    )
+    TgClient.bot.add_handler(
+        MessageHandler(
             qb_leech,
             filters=command(BotCommands.QbLeechCommand, case_sensitive=True)
             & CustomFilters.authorized,

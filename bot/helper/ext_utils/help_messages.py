@@ -304,6 +304,8 @@ def get_bot_commands():
         "Mirror": "[link/file] Mirror task to cloud destination",
         "QbMirror": "[magnet/torrent] Mirror using qBittorrent",
         "Ytdl": "[link] Mirror YouTube and supported websites",
+        "Socialdl": "[link] Download social-media and other yt-dlp supported media",
+        "CookieSettings": "Manage per-platform social-media cookies",
         "UpHoster": "[link/file] Upload to DDL hosters",
         "Leech": "[link/file] Leech task to Telegram",
         "QbLeech": "[magnet/torrent] Leech using qBittorrent",
@@ -376,6 +378,10 @@ def get_help_string():
             help_lines.append(f"<b>{cmd_str}</b>: Mirror NZB via SABnzbd.")
         elif key == "Ytdl":
             help_lines.append(f"<b>{cmd_str}</b>: Mirror link via yt-dlp.")
+        elif key == "Socialdl":
+            help_lines.append(f"<b>{cmd_str}</b>: Download social-media media via yt-dlp.")
+        elif key == "CookieSettings":
+            help_lines.append(f"<b>{cmd_str}</b>: Manage Facebook/Instagram/X/TikTok/Reddit cookie files.")
         elif key == "UpHoster":
             help_lines.append(f"<b>{cmd_str}</b>: Upload to DDL Hoster services.")
         elif key == "Leech":
@@ -485,6 +491,8 @@ yt = """<b>yt-dlp Supported Link Mirroring & Leeching</b>
 • <code>-i count</code>: Multi-part download.
 • <code>-up upload_path</code>: Custom upload destination.
 • <code>-m folder_name</code>: Folder name for same-directory downloads."""
+
+socialdl_help = """<b>Social Media Downloader</b>\n\n<code>/sdl link</code> or <code>/socialdl link</code>\n• Uses the existing yt-dlp engine and quality/format selector.\n• Platform cookies can be configured with <code>/cookiesettings</code>.\n• Supports the existing command suffix and downloader arguments."""
 
 yt_opt = """<b>yt-dlp Options Format:</b>
 

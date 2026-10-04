@@ -10,6 +10,8 @@ class BotCommands:
         "QbMirror": ["qbmirror", "qm"],
         "JdMirror": ["jdmirror", "jm"],
         "Ytdl": ["ytdl", "y"],
+        "Socialdl": ["socialdl", "sdl"],
+        "CookieSettings": ["cookiesettings", "cookies"],
         "UpHoster": ["uphoster", "up"],
         "NzbMirror": ["nzbmirror", "nm"],
         "Leech": ["leech", "l"],

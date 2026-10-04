@@ -56,7 +56,8 @@ from .users_settings import (
     edit_user_settings,
     send_user_settings,
 )
-from .ytdlp import ytdl, ytdl_leech
+from .ytdlp import ytdl, ytdl_leech, socialdl, socialdl_leech
+from .social_cookies import cookiesettings, social_cookie_callback
 from .addbot import add_bot_command, add_bot_cb
 from .request_ff import request_ff, reqff_callback
 from .taskm import taskm_command, taskm_callback, taskuser_command, taskuser_callback
@@ -111,6 +112,10 @@ __all__ = [
     "seedr_link",
     "ytdl",
     "ytdl_leech",
+    "socialdl",
+    "socialdl_leech",
+    "cookiesettings",
+    "social_cookie_callback",
     "restart_bot",
     "restart_notification",
     "confirm_restart",
