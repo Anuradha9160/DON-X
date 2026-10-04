@@ -251,11 +251,11 @@ class TelegramDownloadHelper:
                 try:
                     from ...telegram_helper.message_utils import get_tg_link_message
                     user_range_mode = self._listener.user_dict.get("RANGE_LINK_MODE") or getattr(Config, "RANGE_LINK_MODE", "normal")
-                    tg_msg, s_sess = await get_tg_link_message(url, range_mode=user_range_mode)
+                    tg_msg, s_sess = await get_tg_link_message(url, range_mode=user_range_mode, user_id=self._listener.user_id, user_dict=self._listener.user_dict)
                     if isinstance(tg_msg, list):
                         for tm in tg_msg:
                             if isinstance(tm, str):
-                                sub_msg, _ = await get_tg_link_message(tm, range_mode="normal")
+                                sub_msg, _ = await get_tg_link_message(tm, range_mode="normal", user_id=self._listener.user_id, user_dict=self._listener.user_dict)
                                 tm = sub_msg[0] if isinstance(sub_msg, list) and sub_msg else sub_msg
                             if getattr(tm, "media", None):
                                 m_obj = getattr(tm, tm.media.value)
@@ -483,7 +483,7 @@ class TelegramDownloadHelper:
             if isinstance(message, str):
                 try:
                     from ...telegram_helper.message_utils import get_tg_link_message
-                    sub_msg, _ = await get_tg_link_message(message, range_mode="normal")
+                    sub_msg, _ = await get_tg_link_message(message, range_mode="normal", user_id=self._listener.user_id, user_dict=self._listener.user_dict)
                     if isinstance(sub_msg, list):
                         message = sub_msg[0]
                     else:

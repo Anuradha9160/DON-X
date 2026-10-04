@@ -360,10 +360,32 @@ def parse_tg_link(link: str):
     return _parse_single_tg_link(link)
 
 
-async def get_tg_link_message(link, range_mode="normal"):
+async def get_tg_link_message(link, range_mode="normal", user_id=None, user_dict=None):
     chat, msg_ids, private = parse_tg_link(link)
-    if private and not TgClient.user:
-        raise TgLinkException("USER_SESSION_STRING required for this private link!")
+
+    # Prefer the requesting user's configured personal session.  This is
+    # intentionally independent of the global OWNER/USER_SESSION_STRING so
+    # one user's private Telegram access cannot be reused by another user.
+    personal_user = None
+    if user_id is not None:
+        try:
+            from ... import user_data
+            uid = int(user_id)
+            data = user_dict if isinstance(user_dict, dict) else user_data.get(uid, {})
+            session_string = data.get("TELEGRAM_SESSION_STRING") if data else None
+            if session_string:
+                personal_user = await TgClient.get_personal_user(uid, session_string)
+                if personal_user:
+                    LOGGER.info(f"Using personal Telegram session for user {uid} to resolve {link}")
+        except Exception as e:
+            LOGGER.warning(f"Failed to initialize personal Telegram session for user {user_id}: {e}")
+
+    session_user = personal_user or TgClient.user
+    if private and not session_user:
+        raise TgLinkException(
+            "🔐 Private Telegram link requires your configured session string. "
+            "Open Settings → Telegram Session and set a valid session string."
+        )
 
     is_range = isinstance(msg_ids, list)
 
@@ -393,12 +415,12 @@ async def get_tg_link_message(link, range_mode="normal"):
                 private = True
         except Exception as e:
             private = True
-            if not TgClient.user:
+            if not session_user:
                 raise e
 
-    if TgClient.user:
+    if session_user:
         try:
-            user_messages = await TgClient.user.get_messages(chat_id=chat, message_ids=msg_ids)
+            user_messages = await session_user.get_messages(chat_id=chat, message_ids=msg_ids)
             if is_range:
                 if not isinstance(user_messages, list):
                     user_messages = [user_messages]
@@ -412,10 +434,13 @@ async def get_tg_link_message(link, range_mode="normal"):
                 raise TgLinkException("Message not found or empty!")
         except Exception as e:
             raise TgLinkException(
-                f"You don't have access to this chat!. ERROR: {e}"
+                f"🔒 You do not have access to this Telegram chat/message. ERROR: {e}"
             ) from e
     else:
-        raise TgLinkException("Private: Please report!")
+        raise TgLinkException(
+            "🔒 Unable to access this Telegram message. Check that your configured session "
+            "belongs to an account that can access the chat/message, then try again."
+        )
 
 
 async def update_status_message(sid, force=False):

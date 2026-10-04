@@ -468,7 +468,7 @@ class Mirror(TaskListener):
         if is_telegram_link(self.link):
             try:
                 user_range_mode = self.user_dict.get("RANGE_LINK_MODE") or getattr(Config, "RANGE_LINK_MODE", "normal")
-                reply_to, session = await get_tg_link_message(self.link, range_mode=user_range_mode)
+                reply_to, session = await get_tg_link_message(self.link, range_mode=user_range_mode, user_id=self.user_id, user_dict=self.user_dict)
             except Exception as e:
                 await send_message(self.message, f"ERROR: {e}")
                 await self.remove_from_same_dir()
@@ -815,7 +815,7 @@ class Mirror(TaskListener):
                 await save_range_tasks_to_file()
 
                 try:
-                    sub_msg, sub_session = await get_tg_link_message(item_url, range_mode="normal")
+                    sub_msg, sub_session = await get_tg_link_message(item_url, range_mode="normal", user_id=self.user_id, user_dict=self.user_dict)
                     tg_message = sub_msg[0] if isinstance(sub_msg, list) and sub_msg else sub_msg
 
                     if not tg_message:

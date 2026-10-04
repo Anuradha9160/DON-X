@@ -878,7 +878,7 @@ class TaskConfig:
 
         if self.thumb and self.thumb != "none":
             if is_telegram_link(self.thumb):
-                msg = (await get_tg_link_message(self.thumb))[0]
+                msg = (await get_tg_link_message(self.thumb, user_id=self.user_id, user_dict=self.user_dict))[0]
                 self.thumb = (
                     await create_thumb(msg, self.user_id) if msg and (msg.photo or msg.document) else ""
                 )

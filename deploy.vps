@@ -65,7 +65,8 @@ if [ -f "requirements.txt" ]; then
     pip install --no-deps "mega.py>=1.0.8" -q
 fi
 
-echo "[3/6] Preparing required directories and script permissions..."
+echo "[3/6] Preparing HTR-X runtime, MegaSDK target, directories and permissions..."
+export HTRX_MEGA_SDK_VERSION="10.20.20"
 mkdir -p downloads thumbnails tokens rclone cookies Images configs/sabnzbd
 chmod +x start.sh setpkgs.sh tunnel.sh cron_boot.py 2>/dev/null || true
 
