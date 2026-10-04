@@ -1,3 +1,5 @@
+import re
+
 from ..helper.ext_utils.bot_utils import COMMAND_USAGE, new_task
 from ..helper.ext_utils.help_messages import (
     MIRROR_HELP_DICT,
@@ -8,6 +10,15 @@ from ..helper.telegram_helper.message_utils import (
     edit_message,
     delete_message,
     send_message,
+)
+from ..helper.telegram_helper.rich_utils import (
+    bullet_list,
+    details,
+    divider,
+    heading,
+    message as rich_message,
+    paragraph,
+    rich_text,
 )
 from ..helper.ext_utils.help_messages import help_string
 
@@ -42,4 +53,42 @@ async def arg_usage(_, query):
 
 @new_task
 async def bot_help(_, message):
-    await send_message(message, help_string)
+    # Rich UI is intentionally used only for the main help landing page.
+    # Detailed command pages keep their existing HTML formatting.
+    lines = []
+    for raw_line in help_string.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("<blockquote>"):
+            continue
+        clean = re.sub(r"</?b>", "", line)
+        clean = re.sub(r"<[^>]+>", "", clean)
+        if ":" in clean and clean.startswith("/"):
+            command, description = clean.split(":", 1)
+            lines.append((("c", command.strip()), f":{description}"))
+        elif clean:
+            lines.append(clean)
+
+    blocks = [
+        heading("🚀 HTR-X Help", 2),
+        paragraph(
+            "Fast command reference. ",
+            ("b", "Detailed command pages"),
+            " keep the existing interactive navigation.",
+        ),
+        divider(),
+        bullet_list(lines),
+        divider(),
+        details(
+            "💡 Tip",
+            [
+                paragraph(
+                    "Run a command without arguments to open its detailed options."
+                )
+            ],
+        ),
+    ]
+    try:
+        await send_message(message, rich_message(*blocks))
+    except Exception:
+        # Defensive fallback for older Telegram client builds.
+        await send_message(message, help_string)

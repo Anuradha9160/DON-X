@@ -36,6 +36,13 @@ from ..helper.telegram_helper.message_utils import (
     edit_message,
 )
 from ..helper.telegram_helper.button_build import ButtonMaker
+from ..helper.telegram_helper.rich_utils import (
+    divider,
+    heading,
+    message as rich_message,
+    paragraph,
+    table,
+)
 
 
 @new_task
@@ -45,14 +52,28 @@ async def task_status(_, message):
     if count == 0:
         currentTime = get_readable_time(time() - bot_start_time)
         free = get_readable_file_size(disk_usage(DOWNLOAD_DIR).free)
-        msg = f"""<b>📊 Active Bot Status</b>
-
-<blockquote><b>No Active Tasks Running!</b>
-
-• <b>Tip:</b> Check personal tasks using <code>/{BotCommands.StatusCommand[0]} me</code> or <code>/{BotCommands.StatusCommand[0]} user_id</code></blockquote>
-
-<blockquote>⚡ <b>CPU:</b> {cpu_percent()}% | 💾 <b>Free Disk:</b> {free} [{round(100 - disk_usage(DOWNLOAD_DIR).percent, 1)}%]\n🧠 <b>RAM:</b> {virtual_memory().percent}% | ⏱️ <b>Uptime:</b> {currentTime}</blockquote>
-"""
+        msg = rich_message(
+            heading("📊 Active Bot Status", 2),
+            paragraph(("b", "No active tasks running.")),
+            table(
+                ["Metric", "Value"],
+                [
+                    ["⚡ CPU", f"{cpu_percent()}%"],
+                    ["💾 Free disk", f"{free} ({round(100 - disk_usage(DOWNLOAD_DIR).percent, 1)}%)"],
+                    ["🧠 RAM", f"{virtual_memory().percent}%"],
+                    ["⏱️ Uptime", currentTime],
+                ],
+                title="System",
+            ),
+            divider(),
+            paragraph(
+                "Use ",
+                ("c", f"/{BotCommands.StatusCommand[0]} me"),
+                " for your personal tasks or ",
+                ("c", f"/{BotCommands.StatusCommand[0]} user_id"),
+                " for a specific user.",
+            ),
+        )
         reply_message = await send_message(message, msg)
         await auto_delete_message(message, reply_message)
     else:
@@ -214,20 +235,35 @@ async def status_pages(_, query):
                 case _:
                     tasks["Download"] += 1
 
-        msg = f"""<b>📊 System Tasks Overview</b>
-
-<blockquote>• <b>Download:</b> {tasks["Download"]} | <b>Upload:</b> {tasks["Upload"]}
-• <b>Seed:</b> {tasks["Seed"]} | <b>Archive:</b> {tasks["Archive"]}
-• <b>Extract:</b> {tasks["Extract"]} | <b>Split:</b> {tasks["Split"]}
-• <b>QueueDL:</b> {tasks["QueueDl"]} | <b>QueueUP:</b> {tasks["QueueUp"]}
-• <b>Clone:</b> {tasks["Clone"]} | <b>CheckUp:</b> {tasks["CheckUp"]}
-• <b>Paused:</b> {tasks["Pause"]} | <b>SampleVid:</b> {tasks["SamVid"]}
-• <b>Convert:</b> {tasks["ConvertMedia"]} | <b>FFmpeg:</b> {tasks["FFmpeg"]}
-
-⚡ <b>Overall Download Speed:</b> {get_readable_file_size(dl_speed)}/s
-⚡ <b>Overall Upload Speed:</b> {get_readable_file_size(up_speed)}/s
-🌱 <b>Overall Seeding Speed:</b> {get_readable_file_size(seed_speed)}/s</blockquote>
-"""
+        msg = rich_message(
+            heading("📊 System Tasks Overview", 2),
+            table(
+                ["Task type", "Count"],
+                [
+                    ["Download", tasks["Download"]],
+                    ["Upload", tasks["Upload"]],
+                    ["Seed", tasks["Seed"]],
+                    ["Archive", tasks["Archive"]],
+                    ["Extract", tasks["Extract"]],
+                    ["Split", tasks["Split"]],
+                    ["Queue DL", tasks["QueueDl"]],
+                    ["Queue UP", tasks["QueueUp"]],
+                    ["Clone", tasks["Clone"]],
+                    ["Check", tasks["CheckUp"]],
+                    ["Paused", tasks["Pause"]],
+                    ["Sample video", tasks["SamVid"]],
+                    ["Convert", tasks["ConvertMedia"]],
+                    ["FFmpeg", tasks["FFmpeg"]],
+                ],
+                title="Active work",
+            ),
+            divider(),
+            paragraph(
+                "⚡ Download: ", ("b", f"{get_readable_file_size(dl_speed)}/s"),
+                "   ⚡ Upload: ", ("b", f"{get_readable_file_size(up_speed)}/s"),
+                "   🌱 Seed: ", ("b", f"{get_readable_file_size(seed_speed)}/s"),
+            ),
+        )
         button = ButtonMaker()
         button.data_button("◀️ Back", f"status {data[1]} ref")
         await edit_message(message, msg, button.build_menu())
