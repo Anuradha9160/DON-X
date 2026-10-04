@@ -15,6 +15,7 @@ from ...ext_utils.task_manager import (
     limit_checker,
 )
 from ...mirror_leech_utils.status_utils.queue_status import QueueStatus
+from ...ext_utils.cookie_utils import describe_cookie_report, ensure_cookie_file
 from ...telegram_helper.message_utils import send_message, send_status_message
 from ..status_utils.yt_dlp_status import YtDlpStatus
 
@@ -39,13 +40,125 @@ YT_JS_OPTS = {
 }
 
 
+YT_LINK_RE = r"(?:youtube\.com|youtu\.be|youtube-nocookie\.com)"
+
+# Tried in order until one returns REAL (non-storyboard) formats.
+YT_ATTEMPTS = (
+    ("default clients + cookies", YT_EXTRACTOR_ARGS, True),
+    ("default clients, no cookies", YT_EXTRACTOR_ARGS, False),
+    ("android_vr client, no cookies", {"youtube": {"player_client": ["android_vr"]}}, False),
+)
+
+_KEY_LINE = (
+    r"warning|error|challenge|js runtime|jsc|sabr|po token|cookies|sign in|"
+    r"nsig|n function|no longer valid|skipped|not available|unavailable|bot|"
+    r"formats? (?:may|have)|player response|drm"
+)
+
+
+def is_youtube_link(link):
+    return bool(re_search(YT_LINK_RE, str(link), 2))  # 2 == re.IGNORECASE
+
+
+class YtProbeError(Exception):
+    """Raised when YouTube returned no downloadable formats; str() is user-facing."""
+
+
+class ProbeLogger:
+    """Captures everything yt-dlp says so the REAL cause can be logged/shown."""
+
+    def __init__(self):
+        self.lines = []
+
+    def debug(self, msg):
+        self.lines.append(str(msg))
+
+    info = debug
+
+    def warning(self, msg):
+        self.lines.append(f"WARNING: {msg}")
+
+    def error(self, msg):
+        self.lines.append(f"ERROR: {msg}")
+
+
+def real_formats(info):
+    return [
+        f
+        for f in (info.get("formats") or [])
+        if f.get("ext") != "mhtml"
+        and f.get("protocol") != "mhtml"
+        and f.get("format_note") != "storyboard"
+        and (f.get("vcodec") != "none" or f.get("acodec") != "none")
+    ]
+
+
+def probe_youtube(link, options):
+    """Extract info trying several client/cookie setups. Returns (info, cfg, lines)."""
+    tried, collected = [], []
+    for label, eargs, use_cookies in YT_ATTEMPTS:
+        if not use_cookies and not options.get("cookiefile") and tried:
+            if eargs is YT_EXTRACTOR_ARGS:
+                continue  # identical to attempt 1 when no cookies are in use
+        opts = {k: v for k, v in options.items() if k != "format"}
+        opts["extractor_args"] = eargs
+        if not use_cookies:
+            opts.pop("cookiefile", None)
+        plog = ProbeLogger()
+        opts.update(
+            logger=plog, verbose=True, ignore_no_formats_error=True, quiet=False
+        )
+        outcome = ""
+        try:
+            with YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(link, download=False)
+            if info is None:
+                outcome = "no info returned"
+            elif info.get("entries") is not None or real_formats(info):
+                LOGGER.info(f"YouTube probe OK using: {label}")
+                return info, {"extractor_args": eargs, "use_cookies": use_cookies}, plog.lines
+            else:
+                n = len(info.get("formats") or [])
+                outcome = f"only {n} non-downloadable format(s) (storyboards)"
+        except Exception as e:
+            outcome = f"exception: {e}"
+        tried.append(f"{label} -> {outcome}")
+        collected.extend(f"[{label}] {line}" for line in plog.lines)
+        LOGGER.error(f"YouTube probe failed ({label}): {outcome}")
+
+    # Full yt-dlp output goes to the bot log, the relevant lines go to the user.
+    for line in collected:
+        LOGGER.error(f"yt-dlp: {line}")
+    key, seen = [], set()
+    for line in collected:
+        clean = line.split("] ", 1)[-1] if line.startswith("[") else line
+        if re_search(_KEY_LINE, clean, 2) and clean not in seen:
+            seen.add(clean)
+            key.append(clean[:260])
+    msg = "ERROR: [youtube] Requested format is not available (YouTube returned no downloadable streams)\n\nTried:\n"
+    msg += "\n".join(f"• {t}" for t in tried)
+    msg += "\n\nWhat yt-dlp reported:\n" + (
+        "\n".join(f"• {k}" for k in key[:12]) or "• (nothing relevant captured, see bot log)"
+    )
+    if options.get("cookiefile"):
+        msg += f"\n\nCookie file: {describe_cookie_report(ensure_cookie_file(options['cookiefile']))}"
+    msg += (
+        "\n\nUsual causes: cookies expired/rotated (re-export from a private window), "
+        "JS runtime/solver not working (deno/node + matching yt-dlp-ejs), or YouTube forcing "
+        "SABR for this server IP (try another IP/proxy)."
+    )
+    raise YtProbeError(msg)
+
+
 def get_cookie_file(user_dict=None):
     user_dict = user_dict or {}
     if not user_dict.get("USE_DEFAULT_COOKIE", False):
         usr_cookie = user_dict.get("USER_COOKIE_FILE", "")
         if usr_cookie and ospath.exists(usr_cookie):
+            ensure_cookie_file(usr_cookie)
             return usr_cookie
     if ospath.exists("cookies.txt"):
+        ensure_cookie_file("cookies.txt")
         return "cookies.txt"
     return None
 
@@ -56,6 +169,8 @@ class MyLogger:
         self._listener = listener
 
     def debug(self, msg):
+        if re_search(_KEY_LINE, str(msg), 2):
+            LOGGER.info(f"yt-dlp: {msg}")
         # Hack to fix changing extension
         if not self._obj.is_playlist:
             if match := re_search(
@@ -113,6 +228,11 @@ class YoutubeDLHelper:
             },
         }
         cookie_to_use = get_cookie_file(self._listener.user_dict)
+        yt_cfg = getattr(self._listener, "yt_cfg", None)
+        if yt_cfg:
+            self.opts["extractor_args"] = yt_cfg["extractor_args"]
+            if not yt_cfg["use_cookies"]:
+                cookie_to_use = None
         if cookie_to_use:
             self.opts["cookiefile"] = cookie_to_use
             LOGGER.info(

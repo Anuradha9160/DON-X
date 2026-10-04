@@ -7,6 +7,7 @@ from io import BytesIO
 import json
 import os
 from os import getcwd
+from contextlib import suppress
 from re import sub
 from time import time
 import zipfile
@@ -33,6 +34,10 @@ from ..helper.ext_utils.mega_utils import get_mega_account_info
 from ..helper.ext_utils.media_utils import create_thumb, download_image_thumb
 from ..helper.ext_utils.status_utils import get_readable_file_size
 from ..helper.telegram_helper.button_build import ButtonMaker
+from ..helper.ext_utils.cookie_utils import (
+    describe_cookie_report,
+    normalize_cookie_file,
+)
 from ..helper.telegram_helper.message_utils import (
     delete_message,
     edit_message,
@@ -1765,6 +1770,20 @@ async def add_file(_, message, ftype, rfunc, target_user_id=None):
         await makedirs(cpath, exist_ok=True)
         des_dir = f"{cpath}/cookies.txt"
         await message.download(file_name=des_dir)
+        report = normalize_cookie_file(des_dir)
+        if report["error"] or not report["total"]:
+            await send_message(
+                message,
+                f"❌ Cookies not saved: {describe_cookie_report(report)}\n"
+                "Export Netscape-format cookies.txt while logged in to YouTube.",
+            )
+            with suppress(Exception):
+                await remove(des_dir)
+            des_dir = ""
+        else:
+            await send_message(
+                message, f"🍪 Cookies saved: {describe_cookie_report(report)}"
+            )
     await delete_message(message)
     if des_dir:
         update_user_ldata(user_id, ftype, des_dir)

@@ -25,6 +25,8 @@ from ..helper.mirror_leech_utils.download_utils.yt_dlp_download import (
     YT_EXTRACTOR_ARGS,
     YT_JS_OPTS,
     get_cookie_file,
+    is_youtube_link,
+    probe_youtube,
 )
 from ..helper.telegram_helper.button_build import ButtonMaker
 from ..helper.telegram_helper.message_utils import (
@@ -532,7 +534,12 @@ class YtDlp(TaskListener):
                     options[key] = value
         options["playlist_items"] = "0"
         try:
-            result = await sync_to_async(extract_info, self.link, options)
+            if is_youtube_link(self.link):
+                result, self.yt_cfg, _ = await sync_to_async(
+                    probe_youtube, self.link, options
+                )
+            else:
+                result = await sync_to_async(extract_info, self.link, options)
         except Exception as e:
             msg = str(e).replace("<", " ").replace(">", " ")
             await send_message(self.message, f"{self.tag} {msg}")
