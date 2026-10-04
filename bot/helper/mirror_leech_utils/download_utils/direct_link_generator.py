@@ -520,12 +520,133 @@ def hubdrive(url):
     raise DirectDownloadLinkException("ERROR: File Not Found or Expired")
 
 
-def gdflix(url):
-    with CurlSession(impersonate="chrome") as session:
-        res = session.get(url)
+def _gdflix_is_working(session, url, referer=None):
+    """Lightweight validation for a candidate GDFlix download URL."""
+    if not url or not url.startswith(("http://", "https://")):
+        return False
+    headers = {"Referer": referer} if referer else {}
+    try:
+        res = session.head(url, headers=headers, allow_redirects=True, timeout=15)
+        status = getattr(res, "status_code", 0)
+        ctype = (res.headers.get("content-type") or "").lower()
+        if 200 <= status < 400:
+            # HTML pages usually mean the candidate is not the final file.
+            if "text/html" not in ctype or any(
+                x in url.lower()
+                for x in ("workers.dev", "googleusercontent.com", ".r2.dev", "indexserver")
+            ):
+                return True
+    except Exception:
+        pass
+
+    # Some CDNs do not support HEAD. Probe only one byte.
+    try:
+        probe_headers = dict(headers)
+        probe_headers["Range"] = "bytes=0-0"
+        res = session.get(
+            url,
+            headers=probe_headers,
+            allow_redirects=True,
+            timeout=20,
+        )
+        status = getattr(res, "status_code", 0)
+        ctype = (res.headers.get("content-type") or "").lower()
+        return status in (200, 206) and (
+            "text/html" not in ctype
+            or any(
+                x in url.lower()
+                for x in ("workers.dev", "googleusercontent.com", ".r2.dev", "indexserver")
+            )
+        )
+    except Exception:
+        return False
+
+
+def _gdflix_instant(session, instant_url, referer):
+    """Resolve Instant DL to its final URL without downloading the file."""
+    try:
+        res = session.get(
+            instant_url,
+            headers={"Referer": referer},
+            allow_redirects=True,
+            timeout=25,
+        )
+        final_url = res.url
+        params = parse_qs(urlparse(final_url).query)
+
+        for value in params.get("url", []):
+            value = value.strip()
+            if value.startswith(("http://", "https://")):
+                return value
+            try:
+                decoded = b64decode(
+                    value + "=" * (-len(value) % 4),
+                    validate=False,
+                ).decode("utf-8", errors="ignore").strip()
+                if decoded.startswith(("http://", "https://")):
+                    return decoded
+            except Exception:
+                pass
+
         tree = HTML(res.text)
-        if "/pack/" in url:
-            host = f"https://{urlparse(res.url).netloc}"
+        for href in tree.xpath("//a[@href]/@href"):
+            href = href.strip()
+            text = " ".join(tree.xpath(
+                f'//a[@href="{href}"]//text()'
+            )).lower()
+            if (
+                href.startswith(("http://", "https://"))
+                and any(k in text for k in ("download here", "download", "click here"))
+                and not any(x in href for x in ("telegram", "t.me", "pages.dev"))
+            ):
+                return href
+
+        patterns = (
+            r'(?:window\.location(?:\.href)?|location\.href)\s*=\s*["\'](https?://[^"\']+)',
+            r'(?:downloadUrl|download_link|downloadLink)\s*=\s*["\'](https?://[^"\']+)',
+            r'["\'](https?://[^"\']+(?:googleusercontent\.com|\.r2\.dev|workers\.dev)[^"\']*)["\']',
+        )
+        for pattern in patterns:
+            found = findall(pattern, res.text, flags=0)
+            if found:
+                return found[0]
+    except Exception:
+        pass
+    return None
+
+
+def gdflix(url):
+    """
+    Resolve GDFlix using a resilient priority order.
+
+    Priority:
+      1. Cloud Resume Download
+      2. Instant DL
+      3. Cloud Download / R2
+      4. Direct Server
+
+    Every candidate is checked before it is returned. If the preferred
+    candidate is expired/broken, the next candidate is tried automatically.
+    """
+    with CurlSession(impersonate="chrome") as session:
+        try:
+            res = session.get(
+                url,
+                headers={"User-Agent": user_agent},
+                timeout=25,
+            )
+            res.raise_for_status()
+        except Exception as e:
+            raise DirectDownloadLinkException(
+                f"ERROR: GDFlix page failed: {e}"
+            ) from e
+
+        tree = HTML(res.text)
+        base_url = res.url
+        host = f"{urlparse(base_url).scheme}://{urlparse(base_url).netloc}"
+
+        # GDFlix packs/folders: resolve each file independently.
+        if "/pack/" in base_url:
             details = {
                 "contents": [],
                 "title": (tree.xpath("//title/text()") or [""])[0]
@@ -533,28 +654,159 @@ def gdflix(url):
                 .strip(),
                 "total_size": 0,
             }
-            for link in tree.xpath("//a[starts-with(@href, '/file/')]"):
-                name, _, size = " ".join(link.itertext()).strip().rpartition("[")
-                details["contents"].append(
-                    {
-                        "path": "",
-                        "filename": name.strip(),
-                        "url": gdflix(f"{host}{link.attrib['href']}"),
-                    }
+            for href in tree.xpath("//a[starts-with(@href, '/file/')]/@href"):
+                name_node = tree.xpath(
+                    f'//a[@href="{href}"]'
                 )
-                details["total_size"] += speed_string_to_bytes(size.strip("] "))
+                label = (
+                    " ".join(name_node[0].itertext()).strip()
+                    if name_node else href.rsplit("/", 1)[-1]
+                )
+                name, _, size = label.rpartition("[")
+                item_url = gdflix(f"{host}{href}")
+                details["contents"].append({
+                    "path": "",
+                    "filename": (name or label).strip(),
+                    "url": item_url,
+                })
+                if size:
+                    details["total_size"] += speed_string_to_bytes(
+                        size.strip("] ")
+                    )
             if not details["contents"]:
                 raise DirectDownloadLinkException("ERROR: No files found in pack")
             return details
-        if not (instant := tree.xpath("//a[contains(@href, 'instant')]/@href")):
-            raise DirectDownloadLinkException("ERROR: Instant DL link not found")
-        res = session.get(instant[0], allow_redirects=False)
-        if not (loc := res.headers.get("location", "").strip()):
-            raise DirectDownloadLinkException("ERROR: File Not Found or Expired")
-        if durl := parse_qs(urlparse(loc).query).get("url"):
-            return durl[0]
-        return loc
 
+        # Collect candidates from the main GDFlix page.
+        candidates = {
+            "cloud_resume": None,
+            "instant": None,
+            "cloud_download": None,
+            "direct_server": None,
+        }
+
+        for a in tree.xpath("//a[@href]"):
+            href = a.attrib.get("href", "").strip()
+            text = " ".join(a.itertext()).strip().lower()
+            link = (
+                href
+                if href.startswith(("http://", "https://"))
+                else f"{host}{href}" if href.startswith("/") else href
+            )
+            if not link.startswith(("http://", "https://")):
+                continue
+
+            if "instant dl" in text:
+                candidates["instant"] = link
+            elif "cloud resume" in text:
+                candidates["cloud_resume"] = link
+            elif (
+                "fast cloud" in text
+                or "zipdisk" in text
+                or "cloud download" in text
+            ):
+                candidates["cloud_download"] = link
+            elif "direct server" in text:
+                candidates["direct_server"] = link
+
+        # Cloud Resume: open the cloud page and extract the actual workers.dev
+        # download URL. This is intentionally first in the priority chain.
+        if candidates["cloud_resume"]:
+            try:
+                cloud = session.get(
+                    candidates["cloud_resume"],
+                    headers={"Referer": base_url},
+                    timeout=25,
+                )
+                cloud_tree = HTML(cloud.text)
+
+                for a in cloud_tree.xpath("//a[@href]"):
+                    href = a.attrib.get("href", "").strip()
+                    low = href.lower()
+                    text = " ".join(a.itertext()).strip().lower()
+                    if (
+                        href.startswith(("http://", "https://"))
+                        and (
+                            "cloud-dl." in low
+                            or "workers.dev" in low
+                            or "cloud resume" in text
+                            or text in ("download", "resume download", "cloud resume download")
+                        )
+                        and not any(x in low for x in ("telegram", "t.me", "pages.dev"))
+                    ):
+                        candidates["cloud_resume"] = href
+                        break
+
+                # Also support buttons/forms whose action contains the
+                # Cloud Resume endpoint.
+                if not candidates["cloud_resume"] or (
+                    "cloud/" in candidates["cloud_resume"].lower()
+                    and "gdflix" in urlparse(candidates["cloud_resume"]).netloc.lower()
+                ):
+                    for action in cloud_tree.xpath("//form/@action"):
+                        if action.startswith(("http://", "https://")):
+                            if "workers.dev" in action.lower():
+                                candidates["cloud_resume"] = action
+                                break
+
+                # Never test the Cloud Resume landing page itself as a file.
+                if candidates["cloud_resume"] and (
+                    "gdflix" in urlparse(candidates["cloud_resume"]).netloc.lower()
+                    or "/cloud/" in urlparse(candidates["cloud_resume"]).path.lower()
+                ):
+                    candidates["cloud_resume"] = None
+            except Exception:
+                pass
+
+        # Resolve Instant DL only when it is needed/available.
+        if candidates["instant"]:
+            instant_final = _gdflix_instant(
+                session,
+                candidates["instant"],
+                base_url,
+            )
+            if instant_final:
+                candidates["instant"] = instant_final
+
+        # Main-page Cloud Download/R2 links are already direct in current
+        # GDFlix versions. If they point to a landing page, follow it once.
+        if candidates["cloud_download"]:
+            try:
+                cd = session.get(
+                    candidates["cloud_download"],
+                    headers={"Referer": base_url},
+                    allow_redirects=True,
+                    timeout=20,
+                )
+                if cd.url != candidates["cloud_download"]:
+                    candidates["cloud_download"] = cd.url
+            except Exception:
+                pass
+
+        # Test candidates in the requested order.
+        priority = (
+            ("cloud_resume", "Cloud Resume Download"),
+            ("instant", "Instant DL"),
+            ("cloud_download", "Cloud Download / R2"),
+            ("direct_server", "Direct Server"),
+        )
+
+        failures = []
+        for key, label in priority:
+            candidate = candidates.get(key)
+            if not candidate:
+                failures.append(f"{label}: unavailable")
+                continue
+
+            if _gdflix_is_working(session, candidate, base_url):
+                return candidate
+
+            failures.append(f"{label}: unavailable/expired")
+
+        raise DirectDownloadLinkException(
+            "ERROR: No working GDFlix download link found. "
+            + " | ".join(failures)
+        )
 
 def buzzheavier(url):
     """
