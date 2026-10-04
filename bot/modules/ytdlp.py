@@ -602,4 +602,7 @@ async def socialdl_leech(client, message):
     if not message.from_user:
         await message.reply("❌ Social cookie/download commands require a user account.")
         return
+    # /sdt is the Telegram-upload variant of /sdl. It intentionally reuses
+    # the exact same YtDlp argument parser, quality selector, cookie lookup,
+    # FFmpeg pipeline, task manager, and Telegram upload/dump logic.
     bot_loop.create_task(YtDlp(client, message, is_social=True, is_leech=True).new_event())

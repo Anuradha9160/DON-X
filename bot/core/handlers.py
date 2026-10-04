@@ -252,6 +252,13 @@ async def add_handlers():
     )
     TgClient.bot.add_handler(
         MessageHandler(
+            socialdl_leech,
+            filters=command(BotCommands.SocialdlTelegramCommand, case_sensitive=True)
+            & CustomFilters.authorized,
+        )
+    )
+    TgClient.bot.add_handler(
+        MessageHandler(
             cookiesettings,
             filters=command(BotCommands.CookieSettingsCommand, case_sensitive=True)
             & CustomFilters.authorized,

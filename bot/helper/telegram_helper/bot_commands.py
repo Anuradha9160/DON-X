@@ -11,6 +11,7 @@ class BotCommands:
         "JdMirror": ["jdmirror", "jm"],
         "Ytdl": ["ytdl", "y"],
         "Socialdl": ["socialdl", "sdl"],
+        "SocialdlTelegram": "sdt",
         "CookieSettings": ["cookiesettings", "cookies"],
         "UpHoster": ["uphoster", "up"],
         "NzbMirror": ["nzbmirror", "nm"],

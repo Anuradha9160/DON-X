@@ -136,13 +136,21 @@ class TelegramUploader:
         if self._user_client is not None:
             self._listener.tg_user_client = self._user_client
 
-        # Check for user configured bot tokens
+        # Check for user configured bot tokens first.
         user_tokens = self._listener.user_dict.get("BOT_TOKENS", [])
         if user_tokens and isinstance(user_tokens, list):
             ubots = await TgClient.get_user_bots(self._listener.user_id, user_tokens)
             if ubots:
                 self._hu_clients = ubots
                 self._listener.client = list(ubots.values())[0]
+
+        # WZML HyperUP: use the globally started helper bots when available.
+        # These are wzgram clients and are load-balanced by HypertgUpload.
+        # Keep personal/user sessions isolated so their uploads are never
+        # silently transferred through helper accounts.
+        if not getattr(self, "_hu_clients", None) and getattr(TgClient, "helper_bots", None):
+            self._hu_clients = dict(TgClient.helper_bots)
+            LOGGER.info("HyperUP enabled with %d global helper client(s)", len(self._hu_clients))
 
     async def _msg_to_reply(self):
         from ...ext_utils.bot_utils import parse_dest
@@ -428,12 +436,51 @@ class TelegramUploader:
         from ...ext_utils.bot_utils import parse_dest
         destinations = []
 
+        # AUTHORIZED_CHATS is an access-control list, never an implicit upload
+        # destination. A chat is allowed here only when it is explicitly a
+        # configured dump destination; otherwise uploads fall back to the user DM.
+        raw_auth = str(getattr(Config, "AUTHORIZED_CHATS", "") or "")
+        auth_ids = set()
+        for raw in raw_auth.split():
+            base = raw.split("|", 1)[0].strip()
+            if base.lstrip("-").isdigit():
+                auth_ids.add(int(base))
+
+        allowed_dump_ids = set()
+        for raw_dump in [
+            self._listener.user_dict.get("LEECH_DUMP_CHAT"),
+            getattr(Config, "LEECH_LOG_CHAT", ""),
+        ]:
+            if raw_dump:
+                try:
+                    d_chat, _ = parse_dest(raw_dump) if not isinstance(raw_dump, int) else (raw_dump, None)
+                    if isinstance(d_chat, int):
+                        allowed_dump_ids.add(d_chat)
+                except Exception:
+                    pass
+        for raw_dump in (Config.LEECH_DUMP_CHATS or {}).values():
+            if raw_dump:
+                try:
+                    d_chat, _ = parse_dest(raw_dump) if not isinstance(raw_dump, int) else (raw_dump, None)
+                    if isinstance(d_chat, int):
+                        allowed_dump_ids.add(d_chat)
+                except Exception:
+                    pass
+
         def add_dest(c_chat, c_thread):
-            if c_chat is not None:
-                if isinstance(c_chat, str) and c_chat.lstrip("-").isdigit():
-                    c_chat = int(c_chat)
-                if (c_chat, c_thread) not in destinations:
-                    destinations.append((c_chat, c_thread))
+            if c_chat is None:
+                return
+            if isinstance(c_chat, str) and c_chat.lstrip("-").isdigit():
+                c_chat = int(c_chat)
+            try:
+                numeric_chat = int(c_chat) if str(c_chat).lstrip("-").isdigit() else None
+            except (TypeError, ValueError):
+                numeric_chat = None
+            if numeric_chat in auth_ids and numeric_chat not in allowed_dump_ids:
+                LOGGER.info("Skipping AUTHORIZED_CHATS upload target %s", numeric_chat)
+                return
+            if (c_chat, c_thread) not in destinations:
+                destinations.append((c_chat, c_thread))
 
         has_preset = getattr(self._listener, "has_preset_dump", False) and bool(getattr(self._listener, "key_dump_dests", None))
 
@@ -481,13 +528,15 @@ class TelegramUploader:
         for entry in self._upload_seq:
             if entry is None:
                 continue
-            chat_id = entry["chat_id"]
-            msg_id = entry["msg_id"]
-            copy_from_chat = chat_id
-            copy_from_msg = msg_id
+            copy_from_chat = entry["chat_id"]
+            copy_from_msg = entry["msg_id"]
+            copied_to_user_dm = False
 
+            # A blocked/invalid configured destination must never prevent delivery
+            # to the requesting user. AUTHORIZED_CHATS is access control only;
+            # only explicitly configured dump chats are eligible destinations.
             for dest_chat, thread_id in destinations:
-                if dest_chat == copy_from_chat and thread_id == (self._listener.chat_thread_id if dest_chat == self._listener.up_dest else None):
+                if dest_chat == copy_from_chat:
                     continue
                 try:
                     kw = {}
@@ -500,9 +549,30 @@ class TelegramUploader:
                         message_id=copy_from_msg,
                         **kw
                     )
+                    if str(dest_chat) == str(self._listener.user_id):
+                        copied_to_user_dm = True
                 except Exception as err:
                     if not self._listener.is_cancelled:
-                        LOGGER.error(f"Failed to copy output message to destination {dest_chat}: {err}")
+                        LOGGER.error(
+                            f"Failed to copy output message to dump destination {dest_chat}: {err}"
+                        )
+
+            # Always provide a DM fallback when no dump destination worked.
+            if not copied_to_user_dm and not self._listener.is_cancelled:
+                try:
+                    await _call_with_flood_retry(
+                        TgClient.bot.copy_message,
+                        chat_id=self._listener.user_id,
+                        from_chat_id=copy_from_chat,
+                        message_id=copy_from_msg,
+                    )
+                except Exception as err:
+                    LOGGER.error(
+                        "Could not deliver output to user DM %s. "
+                        "The user may need to start the bot: %s",
+                        self._listener.user_id,
+                        err,
+                    )
 
     async def _upload_file_task(self, file_, f_path, dirpath, user_session, seq_idx):
         up_path = None

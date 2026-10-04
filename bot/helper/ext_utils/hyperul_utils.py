@@ -185,15 +185,27 @@ class HypertgUpload(HypertgTransfer):
             and up_size > 10 * 1024 * 1024
             and getattr(self._listener, "tg_user_client", None) is None
         )
-        if self._listener.up_dest:
-            upload_chat_id = self._listener.up_dest
-            thread_id = self._listener.chat_thread_id
-            if not isinstance(upload_chat_id, int):
-                upload_chat_id, thread_id = parse_dest(upload_chat_id)
-        elif Config.LEECH_LOG_CHAT:
-            upload_chat_id, thread_id = parse_dest(Config.LEECH_LOG_CHAT)
+        # Upload only to a configured dump destination; otherwise DM the requester.
+        # AUTHORIZED_CHATS controls access and is never treated as an upload target.
+        raw_auth = str(getattr(Config, "AUTHORIZED_CHATS", "") or "")
+        auth_ids = set()
+        for raw in raw_auth.split():
+            base = raw.split("|", 1)[0].strip()
+            if base.lstrip("-").isdigit():
+                auth_ids.add(int(base))
+
+        candidate = self._listener.up_dest or Config.LEECH_LOG_CHAT
+        if candidate:
+            upload_chat_id, thread_id = parse_dest(candidate) if not isinstance(candidate, int) else (candidate, None)
         else:
-            upload_chat_id, thread_id = reply_target.chat.id, None
+            upload_chat_id, thread_id = self._listener.user_id, None
+
+        if upload_chat_id in auth_ids:
+            upload_chat_id, thread_id = self._listener.user_id, None
+            LOGGER.warning(
+                "HyperUP blocked AUTHORIZED_CHATS destination; falling back to DM %s",
+                self._listener.user_id,
+            )
         try:
             if use_hyper:
                 hyper_rply = (

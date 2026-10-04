@@ -379,7 +379,9 @@ def get_help_string():
         elif key == "Ytdl":
             help_lines.append(f"<b>{cmd_str}</b>: Mirror link via yt-dlp.")
         elif key == "Socialdl":
-            help_lines.append(f"<b>{cmd_str}</b>: Download social-media media via yt-dlp.")
+            help_lines.append(f"<b>{cmd_str}</b>: Download social-media media via yt-dlp; supports the full downloader argument/flag set.")
+        elif key == "SocialdlTelegram":
+            help_lines.append(f"<b>{cmd_str}</b>: Social-media yt-dlp download and upload directly to Telegram; supports the full downloader argument/flag set.")
         elif key == "CookieSettings":
             help_lines.append(f"<b>{cmd_str}</b>: Manage Facebook/Instagram/X/TikTok/Reddit cookie files.")
         elif key == "UpHoster":

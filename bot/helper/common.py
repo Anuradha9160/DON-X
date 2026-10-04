@@ -681,9 +681,35 @@ class TaskConfig:
                 ) != self.get_config_path(self.up_dest):
                     raise ValueError("You must use the same config to clone!")
         else:
-            self.leech_dest, self.leech_thread_id = parse_dest(
-                self.user_dict.get("LEECH_DUMP_CHAT") or Config.LEECH_LOG_CHAT
-            )
+            # Telegram uploads must never silently target an AUTHORIZED_CHATS
+            # chat. Authorized chats are command-access controls, not upload
+            # destinations. Prefer configured dump chats; otherwise DM the user.
+            raw_auth = str(getattr(Config, "AUTHORIZED_CHATS", "") or "")
+            auth_ids = set()
+            for raw in raw_auth.split():
+                base = raw.split("|", 1)[0].strip()
+                if base.lstrip("-").isdigit():
+                    auth_ids.add(int(base))
+
+            configured_dump = self.user_dict.get("LEECH_DUMP_CHAT") or Config.LEECH_LOG_CHAT or ""
+            try:
+                parsed_dump, parsed_thread = parse_dest(configured_dump) if configured_dump else (0, None)
+            except Exception:
+                parsed_dump, parsed_thread = 0, None
+
+            if parsed_dump and parsed_dump in auth_ids:
+                # The configured dump is invalid as an upload target; fall back
+                # to the user's private chat instead of uploading into an auth chat.
+                self.leech_dest = self.user_id
+                self.leech_thread_id = None
+                LOGGER.warning(
+                    "Configured dump chat %s is also AUTHORIZED_CHATS; using user DM %s instead",
+                    parsed_dump, self.user_id,
+                )
+            elif configured_dump:
+                self.leech_dest, self.leech_thread_id = parsed_dump, parsed_thread
+            else:
+                self.leech_dest, self.leech_thread_id = self.user_id, None
 
             self.cmd_up_dest = self.up_dest
             if self.cmd_up_dest:
