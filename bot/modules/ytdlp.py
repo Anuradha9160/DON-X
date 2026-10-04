@@ -25,6 +25,7 @@ from ..helper.mirror_leech_utils.download_utils.yt_dlp_download import (
     YT_EXTRACTOR_ARGS,
     YT_JS_OPTS,
     get_cookie_file,
+    get_yt_js_options,
     is_youtube_link,
     probe_youtube,
 )
@@ -491,7 +492,7 @@ class YtDlp(TaskListener):
             "usenetrc": True,
             "cookiefile": cookie_to_use,
             "extractor_args": YT_EXTRACTOR_ARGS,
-            **YT_JS_OPTS,
+            **get_yt_js_options(),
         }
         if opt:
             if isinstance(opt, str):

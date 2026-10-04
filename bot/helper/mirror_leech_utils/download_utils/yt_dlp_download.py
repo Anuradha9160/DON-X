@@ -3,6 +3,7 @@ from logging import getLogger
 from os import path as ospath, listdir
 from re import search as re_search
 from contextlib import suppress
+from shutil import which
 from secrets import token_hex
 from yt_dlp import YoutubeDL, DownloadError
 
@@ -34,10 +35,39 @@ YT_EXTRACTOR_ARGS = {
 # Formats are dropped (-> "Requested format is not available") when YouTube's
 # JS challenge can't be solved. Allow both runtimes the Dockerfile installs and
 # let yt-dlp fetch a matching solver script if the pip yt-dlp-ejs is out of sync.
-YT_JS_OPTS = {
-    "js_runtimes": {"deno": {}, "node": {}},
-    "remote_components": ["ejs:github"],
-}
+def get_yt_js_options():
+    """Use only supported runtimes actually present on the VPS."""
+    runtimes = {}
+    deno = which("deno")
+    if deno:
+        runtimes["deno"] = {"path": deno}
+    node = which("node")
+    if node:
+        try:
+            import subprocess
+            version = subprocess.run(
+                [node, "--version"], capture_output=True, text=True, timeout=3
+            ).stdout.strip().lstrip("v")
+            major = int(version.split(".", 1)[0])
+            if major >= 20:
+                runtimes["node"] = {"path": node}
+            else:
+                LOGGER.warning(
+                    f"Ignoring unsupported Node.js {version}; yt-dlp requires a newer JS runtime."
+                )
+        except Exception:
+            pass
+    if not runtimes:
+        LOGGER.warning(
+            "No supported YouTube JavaScript runtime found. Install Deno or a supported Node.js."
+        )
+    return {
+        "js_runtimes": runtimes,
+        "remote_components": ["ejs:github"],
+    }
+
+
+YT_JS_OPTS = get_yt_js_options()
 
 
 YT_LINK_RE = r"(?:youtube\.com|youtu\.be|youtube-nocookie\.com)"
@@ -217,7 +247,7 @@ class YoutubeDLHelper:
             "trim_file_name": 220,
             "ffmpeg_location": f"/bin/{BinConfig.FFMPEG_NAME}",
             "extractor_args": YT_EXTRACTOR_ARGS,
-            **YT_JS_OPTS,
+            **get_yt_js_options(),
             "fragment_retries": 10,
             "retries": 10,
             "retry_sleep_functions": {

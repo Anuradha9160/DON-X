@@ -742,18 +742,28 @@ class TaskConfig:
                 if not isinstance(self.up_dest, int):
                     self.up_dest, self.chat_thread_id = parse_dest(self.up_dest)
 
+                personal_mode = self.user_dict.get("TELEGRAM_SESSION_MODE", "disabled")
+                if personal_mode in ("upload", "both"):
+                    self.tg_user_client = await TgClient.get_personal_user(
+                        self.user_id,
+                        self.user_dict.get("TELEGRAM_SESSION_STRING"),
+                    )
+                else:
+                    self.tg_user_client = None
+
+                user_client = self.tg_user_client or TgClient.user
                 if self.transmission_mode in ("user", "both"):
-                    if not TgClient.user:
+                    if not user_client:
                         self.transmission_mode = "bot"
                     else:
                         try:
-                            chat = await TgClient.user.get_chat(self.up_dest)
+                            chat = await user_client.get_chat(self.up_dest)
                         except Exception:
                             chat = None
                         if chat is None:
                             self.transmission_mode = "bot"
                         else:
-                            uploader_id = TgClient.user.me.id
+                            uploader_id = user_client.me.id
                             if chat.type not in [
                                 ChatType.SUPERGROUP,
                                 ChatType.CHANNEL,
@@ -775,7 +785,7 @@ class TaskConfig:
                     chat = None
                 if chat is None:
                     if self.transmission_mode == "bot":
-                        self.transmission_mode = "user" if TgClient.user else "bot"
+                        self.transmission_mode = "user" if (getattr(self, "tg_user_client", None) or TgClient.user) else "bot"
                 else:
                     uploader_id = self.client.me.id
                     if chat.type in [

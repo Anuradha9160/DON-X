@@ -6,6 +6,7 @@ from pyrogram.errors import FloodWait
 from asyncio import Lock, gather, sleep
 from hashlib import sha256
 from inspect import signature
+from contextlib import suppress
 
 from .. import LOGGER, bot_loop
 from .config_manager import Config
@@ -33,6 +34,8 @@ class TgClient:
     stream_bots = {}
     stream_loads = {}
     user_bots = {}
+    personal_users = {}
+    _personal_locks = {}
 
     BNAME = ""
     ID = 0
@@ -351,6 +354,62 @@ class TgClient:
                 cls.IS_PREMIUM_USER = False
                 cls.MAX_SPLIT_SIZE = 2097152000
                 cls.user = None
+
+    @classmethod
+    async def get_personal_user(cls, user_id, session_string):
+        """Return a cached per-user Telegram user client for the optional personal session."""
+        if not session_string:
+            return None
+        try:
+            user_id = int(user_id)
+        except (TypeError, ValueError):
+            return None
+        existing = cls.personal_users.get(user_id)
+        if existing and getattr(existing, "is_connected", False):
+            return existing
+        lock = cls._personal_locks.setdefault(user_id, Lock())
+        async with lock:
+            existing = cls.personal_users.get(user_id)
+            if existing and getattr(existing, "is_connected", False):
+                return existing
+            name = f"WZ-PUser-{user_id}"
+            client = cls.wztgClient(
+                name,
+                session_string=session_string.strip(),
+                sleep_threshold=60,
+                no_updates=True,
+            )
+            try:
+                await client.start()
+                me = await client.get_me()
+                cls.personal_users[user_id] = client
+                LOGGER.info(
+                    f"Personal user session [{user_id}] started as "
+                    f"@{me.username or me.first_name}"
+                )
+                return client
+            except Exception as e:
+                LOGGER.error(f"Failed to start personal user session [{user_id}]: {e}")
+                with suppress(Exception):
+                    await client.stop()
+                cls.personal_users.pop(user_id, None)
+                return None
+
+    @classmethod
+    async def stop_personal_user(cls, user_id):
+        try:
+            user_id = int(user_id)
+        except (TypeError, ValueError):
+            return
+        client = cls.personal_users.pop(user_id, None)
+        if client:
+            with suppress(Exception):
+                await client.stop()
+
+    @classmethod
+    async def reset_personal_user(cls, user_id):
+        await cls.stop_personal_user(user_id)
+        cls._personal_locks.pop(int(user_id), None)
 
     @classmethod
     async def get_user_bots(cls, user_id, bot_tokens):

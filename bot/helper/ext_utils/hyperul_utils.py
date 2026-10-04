@@ -164,7 +164,13 @@ class HypertgUpload(HypertgTransfer):
 
         up_size = ospath.getsize(file_path)
         hyper_user_only = False
-        if up_size > 2097152000 and any(k < 0 for k in self.clients):
+        personal_user = getattr(self._listener, "tg_user_client", None)
+        if personal_user:
+            # A per-user session explicitly owns this upload; do not silently
+            # switch it to a global helper/user account.
+            use_hyper = False
+            user_session = True
+        elif up_size > 2097152000 and any(k < 0 for k in self.clients):
             if TgClient.user:
                 use_hyper = False
                 user_session = True
@@ -173,7 +179,12 @@ class HypertgUpload(HypertgTransfer):
                 hyper_user_only = True
                 user_session = False
         else:
-            use_hyper = (Config.USE_HYPER or getattr(self, "_use_user_bots", False)) and self.clients and up_size > 10 * 1024 * 1024
+            use_hyper = (
+            (Config.USE_HYPER or getattr(self, "_use_user_bots", False))
+            and self.clients
+            and up_size > 10 * 1024 * 1024
+            and getattr(self._listener, "tg_user_client", None) is None
+        )
         if self._listener.up_dest:
             upload_chat_id = self._listener.up_dest
             thread_id = self._listener.chat_thread_id
@@ -387,7 +398,9 @@ class HypertgUpload(HypertgTransfer):
         user_session=False,
     ):
         client = (
-            TgClient.user if user_session and TgClient.user else self._listener.client
+            getattr(self._listener, "tg_user_client", None)
+            if user_session and getattr(self._listener, "tg_user_client", None)
+            else (TgClient.user if user_session and TgClient.user else self._listener.client)
         )
         kwargs = {
             "chat_id": chat_id,

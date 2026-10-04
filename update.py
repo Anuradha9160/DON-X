@@ -172,16 +172,43 @@ def _run_update(upstream_repo, upstream_branch, version):
     )
 
 
+def _ensure_youtube_js_runtime():
+    """Install a supported JS runtime on direct VPS deployments.
+    Dockerfile installs do not affect an existing /root/WZML2 checkout.
+    """
+    if srun(["which", "deno"], capture_output=True).returncode == 0:
+        _LOGGER.info("YouTube JS runtime: Deno already available")
+        return True
+
+    _LOGGER.warning("YouTube JS runtime: Deno not found; installing to /usr/local/bin")
+    if srun(["which", "curl"], capture_output=True).returncode != 0:
+        _LOGGER.error("curl is required to install Deno automatically")
+        return False
+
+    result = scall(
+        "curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh",
+        shell=True,
+    )
+    if result != 0 or srun(["which", "deno"], capture_output=True).returncode != 0:
+        _LOGGER.error("Automatic Deno installation failed")
+        return False
+
+    _LOGGER.info("YouTube JS runtime: Deno installed successfully")
+    return True
+
+
 def _update_packages():
     pip_cmd = "pip"
     if srun(["which", "uv"], capture_output=True).returncode == 0:
         pip_cmd = "uv pip"
     scall(f"{pip_cmd} install -U -r requirements.txt", shell=True)
     scall(f"{pip_cmd} install --no-deps mega.py>=1.0.8", shell=True)
+    _ensure_youtube_js_runtime()
     # One-time (per boot) yt-dlp nightly: YouTube breaks stable builds often
     # ("page needs to be reloaded" / "Requested format is not available").
     # Installed together with its extras so yt-dlp-ejs stays version-matched.
     scall(f'{pip_cmd} install -U --pre "yt-dlp[default,curl-cffi]"', shell=True)
+    scall(f"{pip_cmd} install -U yt-dlp-ejs", shell=True)
     _LOGGER.info("Successfully Updated all the Packages!")
 
 

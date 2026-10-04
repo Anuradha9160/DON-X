@@ -71,6 +71,7 @@ class TelegramUploader:
         self._is_private = False
         self._sent_msg = None
         self._user_session = self._listener.transmission_mode in ("user", "both")
+        self._user_client = None
         self._hu: HypertgUpload | None = None
         self._error = ""
         self._upload_seq = []
@@ -116,6 +117,25 @@ class TelegramUploader:
             self._thumb = await apply_thumbnail_watermark(self._thumb, self._listener.user_dict)
             self._listener.thumb = self._thumb
 
+        # Optional per-user Telegram session string for uploads.
+        session_mode = self._listener.user_dict.get("TELEGRAM_SESSION_MODE", "disabled")
+        if session_mode in ("upload", "both"):
+            self._user_client = await TgClient.get_personal_user(
+                self._listener.user_id,
+                self._listener.user_dict.get("TELEGRAM_SESSION_STRING"),
+            )
+            if self._user_client:
+                self._user_session = True
+                self._listener.tg_user_client = self._user_client
+            else:
+                LOGGER.warning(
+                    "Personal Telegram upload session unavailable; falling back to configured bot/user session"
+                )
+        if self._user_client is None and TgClient.user is not None and self._user_session:
+            self._user_client = TgClient.user
+        if self._user_client is not None:
+            self._listener.tg_user_client = self._user_client
+
         # Check for user configured bot tokens
         user_tokens = self._listener.user_dict.get("BOT_TOKENS", [])
         if user_tokens and isinstance(user_tokens, list):
@@ -126,7 +146,7 @@ class TelegramUploader:
 
     async def _msg_to_reply(self):
         from ...ext_utils.bot_utils import parse_dest
-        if self._user_session and TgClient.user is None:
+        if self._user_session and self._user_client is None:
             self._user_session = False
 
         if getattr(self._listener, "has_preset_dump", False) and self._listener.key_dump_dests:
@@ -145,7 +165,7 @@ class TelegramUploader:
         if self._user_session:
             try:
                 self._sent_msg = await _call_with_flood_retry(
-                    self._listener.client.get_messages,
+                    self._user_client.get_messages,
                     chat_id=target_chat_id,
                     message_ids=self._listener.mid,
                 )
@@ -154,7 +174,7 @@ class TelegramUploader:
             if self._sent_msg is None or self._sent_msg.chat is None:
                 try:
                     self._sent_msg = await _call_with_flood_retry(
-                        self._listener.client.send_message,
+                        self._user_client.send_message,
                         chat_id=target_chat_id,
                         text="Starting upload...",
                         disable_web_page_preview=True,
@@ -171,7 +191,7 @@ class TelegramUploader:
             else:
                 try:
                     self._sent_msg = await _call_with_flood_retry(
-                        self._listener.client.send_message,
+                        self._user_client.send_message,
                         chat_id=target_chat_id,
                         text="Starting upload...",
                         disable_web_page_preview=True,
@@ -333,7 +353,7 @@ class TelegramUploader:
                 )
             else:
                 msgs[index] = await _call_with_flood_retry(
-                    TgClient.user.get_messages, chat_id=msg[0], message_ids=msg[1]
+                    self._user_client.get_messages, chat_id=msg[0], message_ids=msg[1]
                 )
         media = self._get_input_media(subkey, key)
         del self._media_dict[key][subkey]
@@ -350,7 +370,7 @@ class TelegramUploader:
                     self._listener.client
                     if self._listener.transmission_mode == "both"
                     or not self._user_session
-                    else TgClient.user
+                    else self._user_client
                 ).send_media_group,
                 chat_id=msgs[0].chat.id,
                 media=media,
@@ -551,7 +571,9 @@ class TelegramUploader:
                                 for subkey, msgs in list(value.items()):
                                     if len(msgs) > 1:
                                         await self._send_media_group(subkey, key, msgs)
-                    if self._listener.transmission_mode == "both":
+                    if self._user_client is not None:
+                        self._user_session = True
+                    elif self._listener.transmission_mode == "both":
                         self._user_session = f_size > 2097152000
                     elif (
                         not self._user_session

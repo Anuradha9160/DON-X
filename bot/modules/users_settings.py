@@ -85,6 +85,7 @@ advanced_options = [
     "YT_DLP_OPTIONS",
     "UPLOAD_PATHS",
     "USER_COOKIE_FILE",
+    "TELEGRAM_SESSION_STRING",
 ]
 yt_options = ["YT_DESP", "YT_TAGS", "YT_CATEGORY_ID", "YT_PRIVACY_STATUS"]
 mega_options = ["MEGA_EMAIL", "MEGA_PASSWORD"]
@@ -247,6 +248,11 @@ user_settings_text = {
         "public / private / unlisted",
         "Privacy status for YouTube videos.",
         "<blockquote>Send privacy status: public, private, or unlisted.\n⏱️ <b>Time Left:</b> <code>60 sec</code></blockquote>",
+    ),
+    "TELEGRAM_SESSION_STRING": (
+        "Telegram Session String",
+        "Optional personal Telegram user session. It is stored privately and used only for the enabled Telegram-link download and/or upload mode.",
+        "<blockquote>Send your Telegram session string. It will not be displayed back in the chat.\n⏱️ <b>Time Left:</b> <code>60 sec</code></blockquote>",
     ),
     "USER_COOKIE_FILE": (
         "File",
@@ -1622,6 +1628,19 @@ Configure custom video encoding, compression, and watermark overlays for uploads
             "YT Cookie File", f"userset {user_id} menu USER_COOKIE_FILE"
         )
 
+        session_mode = user_dict.get("TELEGRAM_SESSION_MODE", "disabled")
+        session_labels = {
+            "telegram": "Telegram Links",
+            "upload": "Upload",
+            "both": "Telegram Links + Upload",
+            "disabled": "Disabled",
+        }
+        session_state = session_labels.get(session_mode, "Disabled")
+        buttons.data_button(
+            f"🔐 Session String: {session_state}",
+            f"userset {user_id} session_menu",
+        )
+
         buttons.data_button("◀️ Back", f"userset {user_id} back", "footer")
         buttons.data_button(
             "❌ Close", f"userset {user_id} close", "footer", style=ButtonStyle.DANGER
@@ -1638,7 +1657,8 @@ Configure custom video encoding, compression, and watermark overlays for uploads
 • <b>Excluded Extensions:</b> <code>{ex_ex}</code>
 • <b>Upload Paths Dict:</b> <b>{upload_paths}</b>
 • <b>YT-DLP Custom Options:</b> <code>{ytopt}</code>
-• <b>Cookie File Status:</b> <b>{user_cookie_msg}</b></blockquote>"""
+• <b>Cookie File Status:</b> <b>{user_cookie_msg}</b>
+• <b>Personal Session:</b> <b>{session_state}</b></blockquote>"""
     elif stype == "yttools":
         buttons.data_button("YT Description", f"userset {user_id} menu YT_DESP")
         yt_desp_val = user_dict.get(
@@ -2503,6 +2523,117 @@ async def edit_user_settings(client, query):
 
         text = "<b>🌐 Select Active Uphoster Destinations:</b>"
         await edit_message(message, text, buttons.build_menu(2))
+    elif data[2] == "session_menu":
+        await query.answer()
+        user_dict = user_data.get(user_id, {})
+        mode = user_dict.get("TELEGRAM_SESSION_MODE", "disabled")
+        labels = {
+            "telegram": "Telegram Links",
+            "upload": "Upload",
+            "both": "Telegram Links + Upload",
+            "disabled": "Disabled",
+        }
+        buttons = ButtonMaker()
+        if user_dict.get("TELEGRAM_SESSION_STRING"):
+            buttons.data_button("✏️ Change Session String", f"userset {user_id} session_set")
+            buttons.data_button("🗑️ Reset Session String", f"userset {user_id} session_reset")
+            buttons.data_button(
+                f"Telegram Links: {'✓' if mode in ('telegram', 'both') else '✗'}",
+                f"userset {user_id} session_mode telegram",
+            )
+            buttons.data_button(
+                f"Upload: {'✓' if mode in ('upload', 'both') else '✗'}",
+                f"userset {user_id} session_mode upload",
+            )
+            buttons.data_button(
+                f"Both: {'✓' if mode == 'both' else '✗'}",
+                f"userset {user_id} session_mode both",
+            )
+            buttons.data_button("Disable", f"userset {user_id} session_mode disabled")
+            current = labels.get(mode, "Disabled")
+            status = "Configured"
+        else:
+            buttons.data_button("➕ Set Session String", f"userset {user_id} session_set")
+            current = "Disabled"
+            status = "Not configured"
+        buttons.data_button("◀️ Back", f"userset {user_id} advanced", "footer")
+        buttons.data_button(
+            "❌ Close", f"userset {user_id} close", "footer", style=ButtonStyle.DANGER
+        )
+        await edit_message(
+            message,
+            f"""<b>🔐 Personal Telegram Session</b>
+
+<blockquote>• <b>Status:</b> {status}
+• <b>Mode:</b> <b>{current}</b>
+
+<b>Telegram Links</b> = use this session for Telegram-link downloads.
+<b>Upload</b> = use this session for Telegram uploads.
+<b>Both</b> = use it for both.
+The session string is a private login credential and is never shown back.</blockquote>""",
+            buttons.build_menu(2),
+        )
+    elif data[2] == "session_mode":
+        await query.answer()
+        mode = data[3] if len(data) > 3 else "disabled"
+        user_dict = user_data.get(user_id, {})
+        if mode not in {"disabled", "telegram", "upload", "both"}:
+            return
+        if mode != "disabled" and not user_dict.get("TELEGRAM_SESSION_STRING"):
+            return await query.answer("Set a session string first.", show_alert=True)
+        update_user_ldata(user_id, "TELEGRAM_SESSION_MODE", mode)
+        await database.update_user_data(user_id)
+        if mode == "disabled":
+            await TgClient.stop_personal_user(user_id)
+        await query.answer(f"Session mode: {mode}")
+        await update_user_settings(query, stype="advanced")
+    elif data[2] == "session_reset":
+        await query.answer("Resetting personal session...", show_alert=False)
+        user_dict = user_data.get(user_id, {})
+        user_dict.pop("TELEGRAM_SESSION_STRING", None)
+        user_dict.pop("TELEGRAM_SESSION_MODE", None)
+        await TgClient.reset_personal_user(user_id)
+        await database.update_user_data(user_id)
+        await update_user_settings(query, stype="advanced")
+    elif data[2] == "session_set":
+        await query.answer()
+        buttons = ButtonMaker()
+        buttons.data_button("Stop", f"userset {user_id} session_menu")
+        buttons.data_button("◀️ Back", f"userset {user_id} session_menu", "footer")
+        buttons.data_button(
+            "❌ Close", f"userset {user_id} close", "footer", style=ButtonStyle.DANGER
+        )
+        await edit_message(
+            message,
+            "<b>🔐 Set Personal Telegram Session</b>\n\n"
+            "<blockquote>Send your Pyrogram session string now. "
+            "It will be validated, stored privately, and never echoed back.\n"
+            "Do not send your bot token or any other credential.</blockquote>",
+            buttons.build_menu(1),
+        )
+
+        async def _save_session(_, msg):
+            session = (msg.text or "").strip()
+            if not session or " " in session:
+                await send_message(msg, "Invalid session string format.")
+                return
+            await TgClient.stop_personal_user(user_id)
+            personal = await TgClient.get_personal_user(user_id, session)
+            if not personal:
+                await send_message(
+                    msg,
+                    "❌ Session validation failed. The session was not saved.",
+                )
+                return
+            update_user_ldata(user_id, "TELEGRAM_SESSION_STRING", session)
+            if not user_data.get(user_id, {}).get("TELEGRAM_SESSION_MODE"):
+                update_user_ldata(user_id, "TELEGRAM_SESSION_MODE", "disabled")
+            await database.update_user_data(user_id)
+            await send_message(msg, "✅ Personal Telegram session saved and validated.")
+            await update_user_settings(query, stype="advanced")
+
+        rfunc = partial(update_user_settings, query, stype="advanced")
+        await event_handler(client, query, _save_session, rfunc)
     elif data[2] == "menu":
         if data[3] == "FFMPEG_CMDS" and not Config.ENABLE_FFMPEG_CMDS:
             return await query.answer("FFmpeg CMDs preset option is blocked/disabled by Bot Owner!", show_alert=True)
@@ -2671,6 +2802,7 @@ async def edit_user_settings(client, query):
             for fpath in [thumb_path, rclone_conf, token_pickle, yt_cookie_path]:
                 if await aiopath.exists(fpath):
                     await remove(fpath)
+            await TgClient.reset_personal_user(user_id)
             await update_user_settings(query)
             await database.update_user_data(user_id)
         else:
@@ -2689,6 +2821,8 @@ async def edit_user_settings(client, query):
                     "RCLONE_CONFIG",
                     "TOKEN_PICKLE",
                     "USER_COOKIE_FILE",
+                    "TELEGRAM_SESSION_STRING",
+                    "TELEGRAM_SESSION_MODE",
                     "SUDO",
                     "AUTH",
                     "is_sudo",
@@ -2761,6 +2895,7 @@ async def edit_user_settings(client, query):
                                 "RCLONE_CONFIG",
                                 "TOKEN_PICKLE",
                                 "USER_COOKIE_FILE",
+                                "TELEGRAM_SESSION_STRING",
                             )
                             for k, v in settings_data.items():
                                 if k not in forbidden_keys:

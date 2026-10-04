@@ -65,12 +65,15 @@ class TelegramDownloadHelper:
         self._listener = listener
         self._id = ""
         self.session = ""
+        self._user_client = None
         tm = self._listener.transmission_mode
         self._dump_chat = (
             self._listener.up_dest if self._listener.is_leech else None
         ) or Config.LEECH_LOG_CHAT
+        personal_mode = self._listener.user_dict.get("TELEGRAM_SESSION_MODE", "disabled")
         self._hyper_dl = (
             Config.USE_HYPER
+            and personal_mode not in ("telegram", "both")
             and self._dump_chat
             and (
                 (tm in ("bot", "both") and len(TgClient.helper_bots) != 0)
@@ -109,7 +112,7 @@ class TelegramDownloadHelper:
     async def _on_download_progress(self, current, _):
         if self._listener.is_cancelled:
             if self.session == "user":
-                TgClient.user.stop_transmission()
+                self._user_client.stop_transmission()
             elif self.session == "hbots":
                 for hbot in TgClient.helper_bots.values():
                     hbot.stop_transmission()
@@ -156,7 +159,7 @@ class TelegramDownloadHelper:
                     if self._listener.transmission_mode in ("user", "both"):
                         self.session = "user"
                         try:
-                            user_message = await TgClient.user.get_messages(
+                            user_message = await self._user_client.get_messages(
                                 chat_id=message.chat.id, message_ids=message.id
                             )
                             download = await user_message.download(
@@ -320,6 +323,20 @@ class TelegramDownloadHelper:
 
     async def add_download(self, message, path, session):
         self.session = session
+        session_mode = self._listener.user_dict.get("TELEGRAM_SESSION_MODE", "disabled")
+        if session_mode in ("telegram", "both"):
+            self._user_client = await TgClient.get_personal_user(
+                self._listener.user_id,
+                self._listener.user_dict.get("TELEGRAM_SESSION_STRING"),
+            )
+            if self._user_client:
+                self.session = "user"
+            else:
+                LOGGER.warning(
+                    "Personal Telegram session unavailable, falling back to bot/helper session"
+                )
+        if self._user_client is None and TgClient.user is not None:
+            self._user_client = TgClient.user
         if not self.session:
             if self._hyper_dl:
                 self.session = "hbots"
@@ -327,7 +344,7 @@ class TelegramDownloadHelper:
                 self._listener.transmission_mode in ("user", "both")
                 and self._listener.is_super_chat
             ):
-                if not TgClient.user:
+                if not self._user_client:
                     LOGGER.warning(
                         "User session not available, downloading with bot session"
                     )
@@ -335,7 +352,7 @@ class TelegramDownloadHelper:
                 else:
                     self.session = "user"
                     try:
-                        message = await TgClient.user.get_messages(
+                        message = await self._user_client.get_messages(
                             chat_id=message.chat.id, message_ids=message.id
                         )
                     except (PeerIdInvalid, ChannelInvalid):
@@ -383,9 +400,9 @@ class TelegramDownloadHelper:
                         message = await self._listener.client.get_messages(
                             chat_id=message.chat.id, message_ids=message.id
                         )
-                    elif TgClient.user:
+                    elif self._user_client:
                         try:
-                            message = await TgClient.user.get_messages(
+                            message = await self._user_client.get_messages(
                                 chat_id=message.chat.id, message_ids=message.id
                             )
                         except (PeerIdInvalid, ChannelInvalid):
