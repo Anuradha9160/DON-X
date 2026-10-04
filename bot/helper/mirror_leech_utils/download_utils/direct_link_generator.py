@@ -616,23 +616,24 @@ def _gdflix_instant(session, instant_url, referer):
 
 
 def gdflix(url):
-    """
-    Resolve GDFlix using a resilient priority order.
+    """Resolve GDFlix with automatic fallback.
 
     Priority:
-      1. Cloud Resume Download
+      1. Cloud Resume Download (resolved from Fast Cloud/ZIPDISK when needed)
       2. Instant DL
       3. Cloud Download / R2
       4. Direct Server
 
-    Every candidate is checked before it is returned. If the preferred
-    candidate is expired/broken, the next candidate is tried automatically.
+    GDFlix often exposes Cloud Resume only after opening the Fast Cloud page,
+    so Fast Cloud is treated as the *source page* for Cloud Resume, not as the
+    final priority itself.
     """
     with CurlSession(impersonate="chrome") as session:
         try:
             res = session.get(
                 url,
                 headers={"User-Agent": user_agent},
+                allow_redirects=True,
                 timeout=25,
             )
             res.raise_for_status()
@@ -643,9 +644,10 @@ def gdflix(url):
 
         tree = HTML(res.text)
         base_url = res.url
-        host = f"{urlparse(base_url).scheme}://{urlparse(base_url).netloc}"
+        parsed = urlparse(base_url)
+        host = f"{parsed.scheme}://{parsed.netloc}"
 
-        # GDFlix packs/folders: resolve each file independently.
+        # GDFlix packs/folders: resolve every file independently.
         if "/pack/" in base_url:
             details = {
                 "contents": [],
@@ -655,29 +657,24 @@ def gdflix(url):
                 "total_size": 0,
             }
             for href in tree.xpath("//a[starts-with(@href, '/file/')]/@href"):
-                name_node = tree.xpath(
-                    f'//a[@href="{href}"]'
-                )
+                node = tree.xpath(f'//a[@href="{href}"]')
                 label = (
-                    " ".join(name_node[0].itertext()).strip()
-                    if name_node else href.rsplit("/", 1)[-1]
+                    " ".join(node[0].itertext()).strip()
+                    if node else href.rsplit("/", 1)[-1]
                 )
                 name, _, size = label.rpartition("[")
-                item_url = gdflix(f"{host}{href}")
+                item_url = gdflix(urljoin(host, href))
                 details["contents"].append({
                     "path": "",
                     "filename": (name or label).strip(),
                     "url": item_url,
                 })
                 if size:
-                    details["total_size"] += speed_string_to_bytes(
-                        size.strip("] ")
-                    )
+                    details["total_size"] += speed_string_to_bytes(size.strip("] "))
             if not details["contents"]:
                 raise DirectDownloadLinkException("ERROR: No files found in pack")
             return details
 
-        # Collect candidates from the main GDFlix page.
         candidates = {
             "cloud_resume": None,
             "instant": None,
@@ -685,91 +682,104 @@ def gdflix(url):
             "direct_server": None,
         }
 
+        # Extract all links from the main page. Do not require an exact button
+        # name because GDFlix changes labels between Cloud/R2/ZIPDISK versions.
         for a in tree.xpath("//a[@href]"):
             href = a.attrib.get("href", "").strip()
             text = " ".join(a.itertext()).strip().lower()
-            link = (
-                href
-                if href.startswith(("http://", "https://"))
-                else f"{host}{href}" if href.startswith("/") else href
-            )
+            link = urljoin(base_url, href)
+            low = link.lower()
             if not link.startswith(("http://", "https://")):
                 continue
 
             if "instant dl" in text:
                 candidates["instant"] = link
-            elif "cloud resume" in text:
-                candidates["cloud_resume"] = link
-            elif (
-                "fast cloud" in text
-                or "zipdisk" in text
-                or "cloud download" in text
-            ):
+            elif any(k in text for k in (
+                "fast cloud", "zipdisk", "cloud download", "cloud / r2", "cloud r2"
+            )):
                 candidates["cloud_download"] = link
             elif "direct server" in text:
                 candidates["direct_server"] = link
+            elif "cloud resume" in text:
+                candidates["cloud_resume"] = link
+            elif "cloud-dl." in low or "workers.dev" in low:
+                # A worker URL exposed directly on the main page is already
+                # the preferred Cloud Resume candidate.
+                candidates["cloud_resume"] = link
 
-        # Cloud Resume: open the cloud page and extract the actual workers.dev
-        # download URL. This is intentionally first in the priority chain.
-        if candidates["cloud_resume"]:
+        # Resolve Cloud Resume. Current GDFlix commonly exposes it by first
+        # opening /cloud/<token>/<file-id>, then showing cloud-dl.* workers.dev.
+        cloud_source = candidates["cloud_resume"] or candidates["cloud_download"]
+        if cloud_source:
             try:
                 cloud = session.get(
-                    candidates["cloud_resume"],
+                    cloud_source,
                     headers={"Referer": base_url},
+                    allow_redirects=True,
                     timeout=25,
                 )
                 cloud_tree = HTML(cloud.text)
 
+                resume_candidates = []
+
+                # 1) Anchors/buttons.
                 for a in cloud_tree.xpath("//a[@href]"):
-                    href = a.attrib.get("href", "").strip()
-                    low = href.lower()
+                    href = urljoin(cloud.url, a.attrib.get("href", "").strip())
                     text = " ".join(a.itertext()).strip().lower()
+                    low = href.lower()
+                    if not href.startswith(("http://", "https://")):
+                        continue
+                    if any(x in low for x in (
+                        "telegram", "t.me", "pages.dev", "gdflix.io/cloud/"
+                    )):
+                        continue
                     if (
-                        href.startswith(("http://", "https://"))
-                        and (
-                            "cloud-dl." in low
-                            or "workers.dev" in low
-                            or "cloud resume" in text
-                            or text in ("download", "resume download", "cloud resume download")
-                        )
-                        and not any(x in low for x in ("telegram", "t.me", "pages.dev"))
+                        "cloud-dl." in low
+                        or "workers.dev" in low
+                        or any(k in text for k in (
+                            "resume download", "cloud resume", "cloud resume download"
+                        ))
                     ):
-                        candidates["cloud_resume"] = href
+                        resume_candidates.append(href)
+
+                # 2) Forms/actions.
+                for action in cloud_tree.xpath("//form/@action"):
+                    href = urljoin(cloud.url, action.strip())
+                    if href.startswith(("http://", "https://")) and any(
+                        x in href.lower() for x in ("cloud-dl.", "workers.dev")
+                    ):
+                        resume_candidates.append(href)
+
+                # 3) Raw HTML/JS URLs. This catches JS-generated buttons.
+                raw_patterns = (
+                    r'https?://[^\"\'<>\s]+cloud-dl\.[^\"\'<>\s]+',
+                    r'https?://[^\"\'<>\s]+\.workers\.dev[^\"\'<>\s]+',
+                )
+                for pattern in raw_patterns:
+                    resume_candidates.extend(findall(pattern, cloud.text, flags=0))
+
+                # De-duplicate while preserving order.
+                seen = set()
+                for candidate in resume_candidates:
+                    candidate = candidate.strip().rstrip('"\'<>),;')
+                    if candidate and candidate not in seen:
+                        seen.add(candidate)
+                        candidates["cloud_resume"] = candidate
                         break
-
-                # Also support buttons/forms whose action contains the
-                # Cloud Resume endpoint.
-                if not candidates["cloud_resume"] or (
-                    "cloud/" in candidates["cloud_resume"].lower()
-                    and "gdflix" in urlparse(candidates["cloud_resume"]).netloc.lower()
-                ):
-                    for action in cloud_tree.xpath("//form/@action"):
-                        if action.startswith(("http://", "https://")):
-                            if "workers.dev" in action.lower():
-                                candidates["cloud_resume"] = action
-                                break
-
-                # Never test the Cloud Resume landing page itself as a file.
-                if candidates["cloud_resume"] and (
-                    "gdflix" in urlparse(candidates["cloud_resume"]).netloc.lower()
-                    or "/cloud/" in urlparse(candidates["cloud_resume"]).path.lower()
-                ):
-                    candidates["cloud_resume"] = None
             except Exception:
                 pass
 
-        # Resolve Instant DL only when it is needed/available.
+        # Resolve Instant DL only when it exists. It is the second priority.
         if candidates["instant"]:
             instant_final = _gdflix_instant(
-                session,
-                candidates["instant"],
-                base_url,
+                session, candidates["instant"], base_url
             )
             if instant_final:
                 candidates["instant"] = instant_final
+            else:
+                candidates["instant"] = None
 
-        # Main-page Cloud Download/R2 links are already direct in current
-        # GDFlix versions. If they point to a landing page, follow it once.
+        # If Cloud Download redirects to an actual file, keep the final URL.
         if candidates["cloud_download"]:
             try:
                 cd = session.get(
@@ -778,12 +788,14 @@ def gdflix(url):
                     allow_redirects=True,
                     timeout=20,
                 )
-                if cd.url != candidates["cloud_download"]:
-                    candidates["cloud_download"] = cd.url
+                if cd.url and cd.url != candidates["cloud_download"]:
+                    # Only replace it when the redirected URL is not another
+                    # GDFlix landing page.
+                    if not ("/cloud/" in urlparse(cd.url).path.lower()):
+                        candidates["cloud_download"] = cd.url
             except Exception:
                 pass
 
-        # Test candidates in the requested order.
         priority = (
             ("cloud_resume", "Cloud Resume Download"),
             ("instant", "Instant DL"),
@@ -803,8 +815,17 @@ def gdflix(url):
 
             failures.append(f"{label}: unavailable/expired")
 
+        # Last-resort behavior: if a syntactically valid candidate exists but
+        # the CDN blocks HEAD/range probes, return it rather than incorrectly
+        # reporting that GDFlix has no link. The downloader itself will perform
+        # the real request and its normal retry/fallback logic remains intact.
+        for key, label in priority:
+            candidate = candidates.get(key)
+            if candidate and candidate.startswith(("http://", "https://")):
+                return candidate
+
         raise DirectDownloadLinkException(
-            "ERROR: No working GDFlix download link found. "
+            "ERROR: No GDFlix download link could be extracted. "
             + " | ".join(failures)
         )
 
