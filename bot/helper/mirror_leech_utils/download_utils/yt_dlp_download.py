@@ -20,6 +20,15 @@ from ..status_utils.yt_dlp_status import YtDlpStatus
 LOGGER = getLogger(__name__)
 
 
+# Workaround for YouTube "The page needs to be reloaded" (yt-dlp issues
+# #17389 / #17405): the `tv_downgraded` client returns UNPLAYABLE, mostly when
+# cookies are used. Exclude it. A user's own `extractor_args` (-opt or
+# YT_DLP_OPTIONS) is applied later and overrides this default.
+YT_EXTRACTOR_ARGS = {
+    "youtube": {"player_client": ["web_safari", "web_embedded", "-tv_downgraded"]}
+}
+
+
 def get_cookie_file(user_dict=None):
     user_dict = user_dict or {}
     if not user_dict.get("USE_DEFAULT_COOKIE", False):
@@ -82,6 +91,7 @@ class YoutubeDLHelper:
             "writethumbnail": True,
             "trim_file_name": 220,
             "ffmpeg_location": f"/bin/{BinConfig.FFMPEG_NAME}",
+            "extractor_args": YT_EXTRACTOR_ARGS,
             "fragment_retries": 10,
             "retries": 10,
             "retry_sleep_functions": {
