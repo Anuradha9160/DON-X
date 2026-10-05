@@ -1,6 +1,5 @@
 # HTR-X — Ultra-Speed Telegram Mirror & Leech Bot
 
-HTR-X is a Telegram mirror/leech bot focused on **fast downloads, high-speed Telegram transfers, reliable direct-link resolution, FFmpeg processing, YouTube downloads, GDFlix support, and modular storage/upload workflows**.
 
 ## What changed in this release
 
@@ -12,13 +11,8 @@ HTR-X is a Telegram mirror/leech bot focused on **fast downloads, high-speed Tel
 - Removed Rich-specific dependencies from help, status, settings, and IMDb output.
 - Status/help/settings no longer attempt a second Rich-message request when Telegram rejects a payload.
 
-### GDFlix
-- Fixed the missing `urljoin()` import that could break valid GDFlix links.
-- Supports normal `/file/` links and GDFlix packs.
 - Detects Cloud Resume, Instant DL, Cloud/R2 and Direct Server variants.
-- Handles relative links with the correct GDFlix origin.
 - Detects newer `data-href`, `data-url`, `data-download`, worker, R2 and JavaScript-generated URLs.
-- Uses fallback candidates when one GDFlix endpoint is unavailable.
 - Avoids falsely failing when a CDN does not support HEAD requests.
 - Pack links resolve each contained file independently.
 
@@ -83,16 +77,12 @@ STATUS_UPDATE_INTERVAL = 5
 
 For a small VPS, reduce pipeline/client counts if memory usage becomes high. For a high-bandwidth VPS, these values can be increased carefully after measuring CPU, RAM, network and Telegram flood waits.
 
-## GDFlix troubleshooting
 
-If a GDFlix URL fails:
 
 1. Confirm the URL opens normally in a browser.
 2. Retry the bot after a short delay if the provider/CDN has expired the generated link.
 3. Check the bot log for the resolver's candidate/fallback error.
-4. Make sure the VPS can reach the GDFlix domain and its CDN.
 5. Test with a normal `/file/` URL before testing a large pack.
-6. Do not hard-code a temporary CDN URL into the bot; GDFlix generated URLs can expire.
 
 The resolver intentionally tries multiple download variants instead of assuming one permanent endpoint.
 
@@ -152,3 +142,27 @@ journalctl -u wzml_bot -f
 ## License
 
 Use the license and upstream notices included with the project. HTR-X modifications should preserve applicable upstream attribution and licenses.
+
+
+## Uphoster destinations
+
+Uphoster destination selection supports the existing DDL uploaders plus configurable
+API destinations for **GDFlix, HubCloud, FilePress, LuluStream, StreamTape, FileMoon,
+UploadHub, and FileStreams**. Configure each host's current official upload endpoint
+and API key (when required) before selecting it. The bot intentionally does **not**
+guess undocumented upload endpoints.
+
+**GDFlix link resolving/downloading has been removed.** GDFlix remains available only
+as an upload-destination slot when a valid upload API endpoint is configured.
+
+## Cookie / Login method
+
+`/cookiesettings` now lets each supported platform choose:
+
+- **Cookie Method** — upload a Netscape `cookies.txt`.
+- **Login Method** — store username/email + password for yt-dlp extractors that
+  natively support credentials.
+
+Credentials are stored per user and should only be used for accounts the user is
+authorized to access. Unsupported sites still require their normal supported
+authentication mechanism.

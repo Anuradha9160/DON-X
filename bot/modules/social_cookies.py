@@ -1,4 +1,5 @@
 from asyncio import sleep
+from re import split as re_split
 from os import path as ospath
 from contextlib import suppress
 
@@ -22,10 +23,21 @@ from ..helper.telegram_helper.message_utils import delete_message, edit_message,
 _cookie_handlers = {}
 
 
+
+def _method(user_id, platform):
+    methods = user_data.get(user_id, {}).get("SOCIAL_AUTH_METHODS", {})
+    return methods.get(platform, "cookie")
+
+def _credentials(user_id, platform):
+    creds = user_data.get(user_id, {}).get("SOCIAL_LOGIN", {})
+    return creds.get(platform) if isinstance(creds, dict) else None
+
 def _menu(user_id):
     buttons = ButtonMaker()
     for key, (label, _) in SOCIAL_COOKIE_PLATFORMS.items():
-        buttons.data_button(f"🍪 {label}", f"scookie {key}")
+        mode = _method(user_id, key)
+        icon = "🍪" if mode == "cookie" else "🔐"
+        buttons.data_button(f"{icon} {label} · {mode.title()}", f"scookie {key}")
     buttons.data_button("◀️ Close", "scookie close", "footer")
     return buttons.build_menu(2)
 
@@ -44,8 +56,8 @@ async def _render(message, user_id):
         "",
     ]
     for key, (label, _) in SOCIAL_COOKIE_PLATFORMS.items():
-        state = "✅ Set" if _status(user_id, key) else "❌ Not set"
-        lines.append(f"• <b>{label}:</b> {state}")
+        state = "Cookie ✓" if _status(user_id, key) else ("Login ✓" if _credentials(user_id, key) else "Not set")
+        lines.append(f"• <b>{label}:</b> {state} · <code>{_method(user_id, key)}</code>")
     lines.append("")
     lines.append("🔒 Cookies are stored per-user. Never share your cookie file.")
     await edit_message(message, "\n".join(lines), _menu(user_id))
@@ -120,6 +132,55 @@ async def _wait_for_cookie(client, query, user_id, platform):
     await _render(query.message, user_id)
 
 
+async def _wait_for_login(client, query, user_id, platform):
+    chat_id = query.message.chat.id
+    label = SOCIAL_COOKIE_PLATFORMS[platform][0]
+    prompt = await edit_message(
+        query.message,
+        f"<b>🔐 {label} Login</b>\n\n"
+        "<blockquote>Send username/email and password in two lines:\n"
+        "<code>username_or_email</code>\n<code>password</code>\n\n"
+        "Use only an account you are authorized to access. Delete the message after saving.</blockquote>",
+        InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data=f"scookie cancel {platform}")]]),
+    )
+    async def pfunc(_, msg):
+        if msg.chat.id != chat_id or not msg.from_user or msg.from_user.id != user_id:
+            return
+        if not msg.text:
+            await msg.reply("❌ Send the username/email on line 1 and password on line 2.")
+            return
+        parts = msg.text.splitlines()
+        if len(parts) < 2 or not parts[0].strip() or not parts[1].strip():
+            await msg.reply("❌ Invalid format. Use two lines: username/email then password.")
+            return
+        creds = user_data.get(user_id, {}).get("SOCIAL_LOGIN", {})
+        if not isinstance(creds, dict):
+            creds = {}
+        creds[platform] = {"username": parts[0].strip(), "password": parts[1].strip()}
+        methods = user_data.get(user_id, {}).get("SOCIAL_AUTH_METHODS", {})
+        if not isinstance(methods, dict):
+            methods = {}
+        methods[platform] = "login"
+        update_user_ldata(user_id, "SOCIAL_LOGIN", creds)
+        update_user_ldata(user_id, "SOCIAL_AUTH_METHODS", methods)
+        await database.update_user_data(user_id)
+        with suppress(Exception):
+            await msg.delete()
+        _cookie_handlers.pop(user_id, None)
+        with suppress(Exception):
+            client.remove_handler(*handler)
+        await _render(query.message, user_id)
+    handler = client.add_handler(MessageHandler(pfunc, filters=filters.create(lambda _, __, m: True)), group=-2)
+    _cookie_handlers[user_id] = (handler, platform)
+    for _ in range(120):
+        if user_id not in _cookie_handlers:
+            return
+        await sleep(0.5)
+    _cookie_handlers.pop(user_id, None)
+    with suppress(Exception):
+        client.remove_handler(*handler)
+    await _render(query.message, user_id)
+
 @new_task
 async def cookiesettings(client, message):
     if not message.from_user or not message.chat or message.chat.type.value != "private":
@@ -157,6 +218,37 @@ async def social_cookie_callback(client, query):
         return
     platform = data[1]
     if platform not in SOCIAL_COOKIE_PLATFORMS:
+        return
+    if len(data) >= 3 and data[2] == "method":
+        buttons = ButtonMaker()
+        current = _method(user_id, platform)
+        buttons.data_button(f"{'✓ ' if current == 'cookie' else ''}🍪 Cookie File", f"scookie {platform} setmethod cookie")
+        buttons.data_button(f"{'✓ ' if current == 'login' else ''}🔐 Login", f"scookie {platform} setmethod login")
+        buttons.data_button("◀️ Back", "scookie back", "footer")
+        await edit_message(query.message, f"<b>🔐 {SOCIAL_COOKIE_PLATFORMS[platform][0]} Authentication Method</b>", buttons.build_menu(1))
+        return
+    if len(data) >= 3 and data[2] == "setmethod":
+        mode = data[3] if len(data) > 3 else "cookie"
+        methods = user_data.get(user_id, {}).get("SOCIAL_AUTH_METHODS", {})
+        if not isinstance(methods, dict):
+            methods = {}
+        methods[platform] = mode
+        update_user_ldata(user_id, "SOCIAL_AUTH_METHODS", methods)
+        await database.update_user_data(user_id)
+        if mode == "login":
+            await _wait_for_login(client, query, user_id, platform)
+        else:
+            await _render(query.message, user_id)
+        return
+    if len(data) >= 3 and data[2] == "removelogin":
+        creds = user_data.get(user_id, {}).get("SOCIAL_LOGIN", {})
+        if isinstance(creds, dict):
+            creds.pop(platform, None)
+        methods = user_data.get(user_id, {}).get("SOCIAL_AUTH_METHODS", {})
+        if isinstance(methods, dict):
+            methods.pop(platform, None)
+        await database.update_user_data(user_id)
+        await _render(query.message, user_id)
         return
     if len(data) >= 3 and data[2] == "remove":
         path = social_cookie_path(user_id, platform)

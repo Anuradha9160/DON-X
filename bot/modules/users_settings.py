@@ -67,6 +67,14 @@ uphoster_options = [
     "DEVUPLOADS_FOLDER",
     "VIKINGFILE_HASH",
     "VIKINGFILE_FOLDER",
+    "GDFLIX_UPLOAD_URL", "GDFLIX_API_KEY",
+    "HUBCLOUD_UPLOAD_URL", "HUBCLOUD_API_KEY",
+    "FILEPRESS_UPLOAD_URL", "FILEPRESS_API_KEY",
+    "LULUSTREAM_UPLOAD_URL", "LULUSTREAM_API_KEY",
+    "STREAMTAPE_UPLOAD_URL", "STREAMTAPE_API_KEY",
+    "FILEMOON_UPLOAD_URL", "FILEMOON_API_KEY",
+    "UPLOADHUB_UPLOAD_URL", "UPLOADHUB_API_KEY",
+    "FILESTREAMS_UPLOAD_URL", "FILESTREAMS_API_KEY",
 ]
 rclone_options = ["RCLONE_CONFIG", "RCLONE_PATH", "RCLONE_FLAGS"]
 gdrive_options = ["TOKEN_PICKLE", "GDRIVE_ID", "INDEX_URL", "DRIVE_CAT"]
@@ -964,6 +972,7 @@ Configure custom video encoding, compression, and watermark overlays for uploads
         buttons.data_button("PixelDrain Tools", f"userset {user_id} pixeldrain")
         buttons.data_button("DevUploads Tools", f"userset {user_id} devuploads")
         buttons.data_button("VikingFile Tools", f"userset {user_id} vikingfile")
+        buttons.data_button("External/API Host Tools", f"userset {user_id} host_api_tools")
         buttons.data_button("◀️ Back", f"userset {user_id} back", "footer")
         buttons.data_button(
             "❌ Close", f"userset {user_id} close", "footer", style=ButtonStyle.DANGER
@@ -977,6 +986,31 @@ Configure custom video encoding, compression, and watermark overlays for uploads
 • <b>Auto DDL:</b> <b>{'Enabled' if auto_ddl else 'Disabled'}</b>
 • <b>Active Services:</b> {", ".join(destinations)}</blockquote>"""
 
+    elif stype == "host_api_tools":
+        buttons = ButtonMaker()
+        api_hosts = [
+            ("GDFlix", "GDFLIX_UPLOAD_URL", "GDFLIX_API_KEY"),
+            ("HubCloud", "HUBCLOUD_UPLOAD_URL", "HUBCLOUD_API_KEY"),
+            ("FilePress", "FILEPRESS_UPLOAD_URL", "FILEPRESS_API_KEY"),
+            ("LuluStream", "LULUSTREAM_UPLOAD_URL", "LULUSTREAM_API_KEY"),
+            ("StreamTape", "STREAMTAPE_UPLOAD_URL", "STREAMTAPE_API_KEY"),
+            ("FileMoon", "FILEMOON_UPLOAD_URL", "FILEMOON_API_KEY"),
+            ("UploadHub", "UPLOADHUB_UPLOAD_URL", "UPLOADHUB_API_KEY"),
+            ("FileStreams", "FILESTREAMS_UPLOAD_URL", "FILESTREAMS_API_KEY"),
+        ]
+        for label, url_key, key_key in api_hosts:
+            buttons.data_button(f"{label} Endpoint", f"userset {user_id} menu {url_key}")
+            buttons.data_button(f"{label} API Key", f"userset {user_id} menu {key_key}")
+        buttons.data_button("◀️ Back", f"userset {user_id} back uphoster", "footer")
+        buttons.data_button("❌ Close", f"userset {user_id} close", "footer", style=ButtonStyle.DANGER)
+        btns = buttons.build_menu(2)
+        configured = sum(bool(user_dict.get(k) or getattr(Config, k, "")) for _, u, k in api_hosts for k in (u,))
+        text = f"""<b>🌐 External/API Host Destinations</b>
+
+<blockquote>Configure the host's current official upload API endpoint and optional API key.
+The bot does not guess undocumented endpoints.</blockquote>
+
+<b>Configured endpoints:</b> <code>{configured}/{len(api_hosts)}</code>"""
     elif stype == "pixeldrain":
         buttons.data_button("PixelDrain Key", f"userset {user_id} menu PIXELDRAIN_KEY")
         buttons.data_button("◀️ Back", f"userset {user_id} back uphoster", "footer")
@@ -2164,7 +2198,10 @@ async def get_menu(option, message, user_id, start=0):
     elif option in advanced_options:
         back_to = "advanced"
     elif option in uphoster_options:
-        back_to = option.split("_")[0].lower()
+        if option.endswith("_UPLOAD_URL") or option.endswith("_API_KEY"):
+            back_to = "host_api_tools"
+        else:
+            back_to = option.split("_")[0].lower()
     elif option in mega_options:
         back_to = "mega"
     elif option in seedr_options:
@@ -2509,6 +2546,8 @@ async def edit_user_settings(client, query):
             "pixeldrain",
             "devuploads",
             "vikingfile",
+            "gdflix", "hubcloud", "filepress", "lulustream",
+            "streamtape", "filemoon", "uploadhub", "filestreams",
         ]:
             state = "✓" if service in selected_services else ""
             buttons.data_button(

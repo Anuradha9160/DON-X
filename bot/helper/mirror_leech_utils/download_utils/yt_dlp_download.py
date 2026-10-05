@@ -273,6 +273,22 @@ class YoutubeDLHelper:
                 f"Using cookies.txt file: {cookie_to_use} | User ID : {self._listener.user_id}"
             )
 
+        # Optional per-platform login method. yt-dlp supports username/password
+        # for extractors that expose native login; unsupported sites will fall
+        # back to their normal authentication flow rather than being bypassed.
+        try:
+            from ...ext_utils.cookie_utils import get_social_platform
+            from .... import user_data
+            platform = get_social_platform(getattr(self._listener, "link", ""))
+            methods = self._listener.user_dict.get("SOCIAL_AUTH_METHODS", {}) or {}
+            creds = self._listener.user_dict.get("SOCIAL_LOGIN", {}) or {}
+            if platform and methods.get(platform) == "login" and creds.get(platform):
+                self.opts["username"] = creds[platform].get("username", "")
+                self.opts["password"] = creds[platform].get("password", "")
+                LOGGER.info(f"Using configured login method for {platform} | User ID: {self._listener.user_id}")
+        except Exception as e:
+            LOGGER.debug(f"Login-method setup skipped: {e}")
+
     @property
     def download_speed(self):
         return self._download_speed

@@ -16,6 +16,9 @@ from bot.helper.mirror_leech_utils.uphoster_utils.uploaders_utils.gofile_uploade
 from bot.helper.mirror_leech_utils.uphoster_utils.uploaders_utils.pixeldrain_uploader import (
     PixelDrainUpload,
 )
+from bot.helper.mirror_leech_utils.uphoster_utils.uploaders_utils.http_api_uploader import (
+    HttpApiUpload,
+)
 
 LOGGER = getLogger(__name__)
 
@@ -25,6 +28,14 @@ SERVICE_MAP = {
     "pixeldrain": PixelDrainUpload,
     "devuploads": DevUploadsUpload,
     "vikingfile": VikingFileUpload,
+    "gdflix": HttpApiUpload,
+    "hubcloud": HttpApiUpload,
+    "filepress": HttpApiUpload,
+    "lulustream": HttpApiUpload,
+    "streamtape": HttpApiUpload,
+    "filemoon": HttpApiUpload,
+    "uploadhub": HttpApiUpload,
+    "filestreams": HttpApiUpload,
 }
 
 
@@ -44,9 +55,15 @@ class MultiUphosterUpload:
         for service in services:
             uploader_cls = SERVICE_MAP.get(service)
             if uploader_cls:
-                self.uploaders.append(
-                    uploader_cls(ProxyListener(self, service), path, self.folder_name)
-                )
+                proxy = ProxyListener(self, service)
+                if service in {"gdflix","hubcloud","filepress","lulustream","streamtape","filemoon","uploadhub","filestreams"}:
+                    self.uploaders.append(
+                        uploader_cls(proxy, path, self.folder_name, service=service)
+                    )
+                else:
+                    self.uploaders.append(
+                        uploader_cls(proxy, path, self.folder_name)
+                    )
 
     @property
     def speed(self):
