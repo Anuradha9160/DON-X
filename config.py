@@ -1,17 +1,17 @@
 # Config File for WZ Bot
 
 # Required Variables
-BOT_TOKEN = "8834332362:AAG8cs06VQb9dDjAFwGahT_BmUGj8UUXWgI"
+BOT_TOKEN = ""
 OWNER_ID = 8663988850
-TELEGRAM_API = 22266643
-TELEGRAM_HASH = "7d0b85b4146034511b8776ed7ff99de4"
+TELEGRAM_API = 
+TELEGRAM_HASH = ""
 
 # Optional Configuration
 ALLDEBRID_API_KEY = ""
 ALLDEBRID_NO_SEED_TIMEOUT = 180
 AS_DOCUMENT = False
 AUTHORIZED_CHATS = ""
-BASE_URL = "https://andrea-vehicles-whatever-football.trycloudflare.com         "
+BASE_URL = "https://andrea-vehicles-whatever-football.trycloudflare.com"
 HELPER_TOKENS = ""
 HELPER_STRINGS = ""
 STREAM_TOKENS = ""
@@ -21,7 +21,7 @@ BOT_MAX_TASKS = 0
 BOT_PM = False
 CMD_SUFFIX = "h"
 DEFAULT_LANG = "en"
-DATABASE_URL = "mongodb+srv://hemanthbreaker2027:9550399779htr@cluster0.haybbxg.mongodb.net/?appName=Cluster0"
+DATABASE_URL = ""
 DEFAULT_UPLOAD = "rc"
 DELETE_LINKS = False
 DEBRID_LINK_API = ""
