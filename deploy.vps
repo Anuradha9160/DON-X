@@ -44,6 +44,11 @@ trap 'rc=$?; if [[ $rc -ne 0 ]]; then echo "Deployment failed (exit $rc). Logs: 
 
 echo "=== CANTARELLABOTS VPS deployment (BOT_TOKEN environment mode) ==="
 echo "App directory: $APP_DIR"
+if [[ -n "${CMD_SUFFIX:-${cmd_suffix:-}}" ]]; then
+  echo "Command suffix: configured"
+else
+  echo "Command suffix: not set (commands remain unsuffixed)"
+fi
 [[ -f config.py ]] || fail "config.py is missing from $APP_DIR"
 [[ -f requirements.txt ]] || fail "requirements.txt is missing from $APP_DIR"
 [[ -f start.sh ]] || fail "start.sh is missing from $APP_DIR"
@@ -252,7 +257,16 @@ import os, runpy
 from pathlib import Path
 namespace = runpy.run_path("config.py")
 keys = [k for k in namespace if k.isupper() and not k.startswith("__")]
-# Include only config variables, and prefer the resolved process environment.
+# These are supported runtime settings but are not Config.py attributes.
+# Preserve them in the systemd EnvironmentFile when supplied during deployment.
+extra_keys = (
+    "START_REPO_URL", "START_REPO_BUTTON",
+    "START_UPDATE_URL", "START_UPDATE_BUTTON",
+    "START_DEV_URL", "START_DEV_BUTTON",
+)
+keys = list(dict.fromkeys(keys + [key for key in extra_keys if key in os.environ]))
+# Include only config variables and the explicit start-menu overrides; prefer
+# the resolved process environment over config.py defaults.
 def env_value(key, default):
     if key in os.environ:
         return os.environ[key]
@@ -266,7 +280,7 @@ def systemd_quote(value):
     value = value.replace("\\", "\\\\").replace('"', chr(92) + '"')
     value = value.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
     return '"' + value + '"'
-lines = [f"{key}={systemd_quote(env_value(key, namespace[key]))}" for key in keys]
+lines = [f"{key}={systemd_quote(env_value(key, namespace.get(key, "")))}" for key in keys]
 # BOT_TOKEN is guaranteed above; include it explicitly if config.py omitted it.
 if "BOT_TOKEN" not in keys:
     lines.append(f"BOT_TOKEN={systemd_quote(os.environ['BOT_TOKEN'])}")

@@ -1,14 +1,14 @@
 # REQUIRED CONFIG
 BOT_TOKEN = ""
-TELEGRAM_API = "22266643"
-TELEGRAM_HASH = "7d0b85b4146034511b8776ed7ff99de4'"
-OWNER_ID = "8663988850"
-DATABASE_URL = "mongodb+srv://hemanthbreaker2027:9550399779htr@cluster0.haybbxg.mongodb.net/?appName=Cluster0"
+OWNER_ID = 0
+TELEGRAM_API = 0
+TELEGRAM_HASH = ""
+DATABASE_URL = ""
 # OPTIONAL CONFIG
 DEFAULT_LANG = "en"
 TG_PROXY = None  # {"scheme": "socks5", "hostname": "", "port": 1234, "username": "user", "password": "pass"}
 USER_SESSION_STRING = ""
-CMD_SUFFIX = "a"
+CMD_SUFFIX = ""
 AUTHORIZED_CHATS = ""
 SUDO_USERS = ""
 STATUS_LIMIT = 10

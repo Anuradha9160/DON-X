@@ -1,15 +1,49 @@
-HTR-X VPS deployment (config.py)
-================================
-1. Upload and extract this folder on an Ubuntu/Debian VPS.
-2. Edit config.py and fill BOT_TOKEN, OWNER_ID, TELEGRAM_API, TELEGRAM_HASH and any other settings.
-3. Run from this folder as root:
-      bash one-click-deploy.sh
-   Or: sudo bash one-click-deploy.sh
-4. Check:
-      systemctl status cantarellabots_bot --no-pager -l
-      journalctl -u cantarellabots_bot -f
+CANTARELLABOTS VPS deployment
+==============================
 
-This deployment reads credentials from config.py and does not require .env.
-The script validates required settings and confirms the systemd service is active,
-but successful Telegram/MongoDB connectivity still depends on valid credentials,
-network access, and the upstream dependencies being available.
+1. Clone/extract the project and enter its directory.
+2. Export credentials and optional settings in Bash. Do not put spaces around
+   the equals sign in `export NAME=value` assignments.
+3. Run `chmod +x deploy.vps start.sh && ./deploy.vps` as root.
+
+Example (replace placeholder secrets with newly rotated credentials):
+
+    cd /bot1
+    rm -rf CDML-X
+    git clone https://github.com/hemanthbreaker3-hash/CDML-X
+    cd CDML-X
+
+    export BOT_TOKEN='REPLACE_WITH_NEW_BOT_TOKEN'
+    export TELEGRAM_HASH='REPLACE_WITH_TELEGRAM_API_HASH'
+    export DATABASE_URL='REPLACE_WITH_MONGODB_URI'
+    export OWNER_ID='YOUR_TELEGRAM_USER_ID'
+    export TELEGRAM_API='YOUR_TELEGRAM_API_ID'
+    export CMD_SUFFIX='a'
+
+    export START_REPO_URL='https://t.me/your_repository_channel'
+    export START_REPO_BUTTON='Repository'
+    export START_UPDATE_URL='https://t.me/your_updates_channel'
+    export START_UPDATE_BUTTON='Updates'
+    export START_DEV_URL='https://t.me/your_developer_channel'
+    export START_DEV_BUTTON='Developer'
+
+    chmod +x deploy.vps start.sh
+    ./deploy.vps
+
+Important:
+- Correct: `export CMD_SUFFIX="a"`
+- Incorrect: `export CMD_SUFFIX = "a"` (Bash assignment syntax error; it will not
+  set CMD_SUFFIX to `a`).
+- `CMD_SUFFIX` is optional. If omitted or empty, commands remain unsuffixed.
+  When set, standard and plugin commands register their suffixed aliases where
+  supported; the unsuffixed aliases remain available for compatibility.
+- The six START_* settings customize the start-menu buttons. The deployment
+  script persists these settings in `/etc/cantarellabots_bot.env` so they survive
+  the systemd service restart.
+- Never commit real tokens, API hashes, or database URIs to Git. Rotate any
+  credential that has been pasted into a public or shared chat.
+
+Check deployment:
+
+    systemctl status cantarellabots_bot --no-pager -l
+    journalctl -u cantarellabots_bot -f

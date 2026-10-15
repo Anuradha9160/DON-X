@@ -4,6 +4,7 @@ from pyrogram.enums import ButtonStyle
 from time import monotonic, time
 from uuid import uuid4
 from re import match
+from os import getenv
 
 from aiofiles import open as aiopen
 from cloudscraper import create_scraper
@@ -33,10 +34,20 @@ from ..helper.telegram_helper.message_utils import (
 async def _build_start_buttons():
     buttons = ButtonMaker()
     lang = Language()
-    buttons.url_button(
-        lang.START_BUTTON1, "https://github.com/abhinai2244/CBML", "header"
-    )
-    buttons.url_button(lang.START_BUTTON2, "https://t.me/cantarellabots", "header")
+
+    # Allow start-menu links and labels to be customized via environment
+    # variables. These values are also persisted by deploy.vps for systemd.
+    repo_url = getenv("START_REPO_URL", "https://github.com/abhinai2244/CBML").strip()
+    repo_label = getenv("START_REPO_BUTTON", lang.START_BUTTON1).strip() or lang.START_BUTTON1
+    updates_url = getenv("START_UPDATE_URL", "https://t.me/cantarellabots").strip()
+    updates_label = getenv("START_UPDATE_BUTTON", lang.START_BUTTON2).strip() or lang.START_BUTTON2
+    dev_url = getenv("START_DEV_URL", "https://t.me/cantarella_wuwa").strip()
+    dev_label = getenv("START_DEV_BUTTON", "TENKA IZUMO").strip() or "TENKA IZUMO"
+
+    if repo_url:
+        buttons.url_button(repo_label, repo_url, "header")
+    if updates_url:
+        buttons.url_button(updates_label, updates_url, "header")
 
     chat_ids = list(auth_chats.keys())
     if Config.AUTHORIZED_CHATS:
@@ -70,12 +81,13 @@ async def _build_start_buttons():
             if link:
                 buttons.url_button(title, link, position="default")
 
-    buttons.url_button(
-        "TENKA IZUMO",
-        "https://t.me/cantarella_wuwa",
-        position="footer",
-        style=ButtonStyle.DANGER,
-    )
+    if dev_url:
+        buttons.url_button(
+            dev_label,
+            dev_url,
+            position="footer",
+            style=ButtonStyle.DANGER,
+        )
 
     return buttons.build_menu(b_cols=3, h_cols=2, f_cols=1)
 
