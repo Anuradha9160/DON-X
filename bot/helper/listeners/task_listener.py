@@ -3,7 +3,7 @@ from html import escape
 from time import time
 from mimetypes import guess_type
 from contextlib import suppress
-from os import path as ospath, walk
+from os import path as ospath, walk, replace as os_replace
 from pyrogram.enums import ButtonStyle
 
 from aiofiles.os import listdir, remove, path as aiopath
@@ -309,6 +309,9 @@ class TaskListener(TaskConfig):
                 is_privileged = await CustomFilters.sudo("", self.message)
                 while self.vidMode:
                     mode_name, selected_name, kwargs = self.vidMode
+                    # Keep the actual input basename for metadata-only Audio Track
+                    # edits. A selector/menu label must never become the upload name.
+                    source_basename = ospath.basename(dl_path) if mode_name == "audio_track" else None
                     if mode_name in privileged_vt_modes and not is_privileged:
                         LOGGER.warning(
                             "Blocked restricted Video Tool '%s' for non-sudo user %s",
@@ -325,6 +328,19 @@ class TaskListener(TaskConfig):
                     result_path = await VidEcxecutor(self, dl_path, gid, False).execute()
                     if result_path and await aiopath.exists(str(result_path)):
                         dl_path = str(result_path)
+                        if mode_name == "audio_track" and source_basename:
+                            # Audio Track only changes audio metadata; preserve the
+                            # source filename even if an old selector value leaked
+                            # into the executor's output name.
+                            result_dir = ospath.dirname(dl_path)
+                            expected_path = ospath.join(result_dir, source_basename)
+                            if ospath.basename(dl_path) != source_basename:
+                                try:
+                                    if not await aiopath.exists(expected_path):
+                                        await sync_to_async(os_replace, dl_path, expected_path)
+                                        dl_path = expected_path
+                                except Exception:
+                                    LOGGER.warning("Could not restore original Audio Track filename", exc_info=True)
                         self.name = ospath.basename(dl_path)
                     else:
                         await self.on_upload_error(f"Video tool failed: {mode_name or 'Rename'}")

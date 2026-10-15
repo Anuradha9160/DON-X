@@ -241,8 +241,12 @@ class Config:
         except ModuleNotFoundError:
             return
         for attr in dir(settings):
-            if hasattr(cls, attr):
+            # Accept lowercase config.py spellings too (e.g. cmd_suffix),
+            # while keeping the canonical runtime setting uppercase.
+            config_key = attr.upper()
+            if hasattr(cls, config_key):
                 value = getattr(settings, attr)
+                attr = config_key
                 if not value:
                     continue
                 if isinstance(value, str):
@@ -281,6 +285,8 @@ class Config:
         config_vars = cls.get_all()
         for key in config_vars:
             env_value = getenv(key)
+            if env_value is None and key == "CMD_SUFFIX":
+                env_value = getenv("cmd_suffix")
             if env_value is not None:
                 converted_value = cls._convert_env_type(key, env_value)
                 cls.set(key, converted_value)

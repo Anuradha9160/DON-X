@@ -97,33 +97,30 @@ class BotCommands:
     @classmethod
     def _build_command_vars(cls):
         commands = cls.get_commands()
+        suffix = str(getattr(Config, "CMD_SUFFIX", "") or "").strip()
+        protected = {"restartall", "statusall", "start"}
+
+        def with_suffix(name):
+            # Keep the original spelling for compatibility and register the
+            # suffixed spelling as an additional accepted command.
+            names = [name]
+            if suffix and name not in protected and not name.endswith(suffix):
+                names.append(f"{name}{suffix}")
+            return names
 
         for key, cmds in commands.items():
+            names = cmds if isinstance(cmds, list) else [cmds]
+            expanded = []
+            for name in names:
+                for candidate in with_suffix(str(name)):
+                    if candidate not in expanded:
+                        expanded.append(candidate)
             if key == "Start":
-                setattr(cls, f"{key}Command", cmds)
-            elif isinstance(cmds, list):
-                setattr(
-                    cls,
-                    f"{key}Command",
-                    [
-                        (
-                            f"{cmd}{Config.CMD_SUFFIX}"
-                            if cmd not in ["restartall", "statusall", "start"]
-                            else cmd
-                        )
-                        for cmd in cmds
-                    ],
-                )
+                setattr(cls, f"{key}Command", expanded[0] if len(expanded) == 1 else expanded)
+            elif isinstance(cmds, list) or len(expanded) > 1:
+                setattr(cls, f"{key}Command", expanded)
             else:
-                setattr(
-                    cls,
-                    f"{key}Command",
-                    (
-                        cmds
-                        if cmds in ["restartall", "statusall", "start"]
-                        else f"{cmds}{Config.CMD_SUFFIX}"
-                    ),
-                )
+                setattr(cls, f"{key}Command", expanded[0])
 
     @classmethod
     def refresh_commands(cls):
