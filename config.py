@@ -6,6 +6,8 @@ TELEGRAM_HASH = ""
 DATABASE_URL = ""
 # OPTIONAL CONFIG
 DEFAULT_LANG = "en"
+VT_SUBTITLE_LANGUAGE = "en"  # Language code for VT translated subtitles (e.g. en, hi, te, ta)
+VT_WHISPER_MODEL = "base"  # tiny, base, small, medium, or large-v3
 TG_PROXY = None  # {"scheme": "socks5", "hostname": "", "port": 1234, "username": "user", "password": "pass"}
 USER_SESSION_STRING = ""
 CMD_SUFFIX = ""

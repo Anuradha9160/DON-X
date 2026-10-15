@@ -40,3 +40,7 @@ xattr
 yt-dlp[default,curl-cffi]
 yt-dlp-ejs
 pycryptodome
+
+# Optional VT audio transcription and subtitle translation
+faster-whisper>=1.1.0
+deep-translator>=1.11.4

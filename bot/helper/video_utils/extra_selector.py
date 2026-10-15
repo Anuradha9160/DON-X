@@ -12,7 +12,7 @@ VID_MODE = {
     'vid_vid':'Video + Video','vid_vid_audio':'Video + Audio','vid_sub':'Video + Subtitle',
     'subsync':'SubSync','compress':'Compress','convert':'Convert','watermark':'Watermark',
     'remove_ads_names':'Remove Ads & Names','extract':'Extract','trim':'Trim','audio_swap':'Audio Swap',
-    'audio_track':'Audio Track','video_audio_sync':'Audio Sync','audio_channel':'Audio Channel',
+    'audio_track':'Audio Track','audio_export':'Audio Export → M4A','subtitle_translate':'Translate Existing Subtitles','audio_to_subtitle':'Audio → Translated Subtitles (Whisper)','video_audio_sync':'Audio Sync','audio_channel':'Audio Channel',
     'subtitle_swap':'Subtitle Swap / Order','subtitle_rename':'Subtitle Rename',
     'rmstream':'Remove Stream','binary_split':'Media Split → Binary','multivt':'MULTI VT','rename':'Rename'
 }

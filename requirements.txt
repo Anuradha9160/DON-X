@@ -43,3 +43,7 @@ pycryptodome
 
 # Plugin dependency; deploy.vps starts its local HTTP token service on 127.0.0.1:4416.
 bgutil-ytdlp-pot-provider==2.0.2
+
+# Optional VT audio transcription and subtitle translation
+faster-whisper>=1.1.0
+deep-translator>=1.11.4

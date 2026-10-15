@@ -503,6 +503,7 @@ async def get_user_settings(from_user, stype="main"):
                 "AUTO_MIRROR",
                 "AUTO_DDL",
                 "SAVE_FILES",
+                "VT_AUDIO_BITRATE",
             ]
         ):
             buttons.data_button(
@@ -946,6 +947,14 @@ Configure custom video encoding, compression, and watermark overlays for uploads
             f"userset {user_id} tog SAVE_FILES {'f' if save_files else 't'} vtools",
         )
 
+        audio_bitrate = user_dict.get("VT_AUDIO_BITRATE", "192k")
+        if audio_bitrate not in {"128k", "160k", "192k", "256k", "320k"}:
+            audio_bitrate = "192k"
+        buttons.data_button(
+            f"🎧 Audio Export Quality: {audio_bitrate}",
+            f"userset {user_id} audio_bitrate",
+        )
+
         buttons.data_button("◀️ Back", f"userset {user_id} back", "footer")
         buttons.data_button(
             "❌ Close", f"userset {user_id} close", "footer", style=ButtonStyle.DANGER
@@ -956,7 +965,8 @@ Configure custom video encoding, compression, and watermark overlays for uploads
 
 <blockquote>• <b>User:</b> {user_name}
 • <b>Auto Video Merge:</b> <b>{'Enabled (' + merge_mode.title() + ' Mode)' if auto_merge else 'Disabled'}</b>
-• <b>Keep Original Files on Merge:</b> <b>{'Enabled' if save_files else 'Disabled'}</b></blockquote>"""
+• <b>Keep Original Files on Merge:</b> <b>{'Enabled' if save_files else 'Disabled'}</b>
+• <b>Audio Export Quality:</b> <code>{audio_bitrate}</code> AAC</blockquote>"""
 
     elif stype == "uphoster":
         uphoster_service = user_dict.get("UPHOSTER_SERVICE", "gofile")
@@ -3013,6 +3023,16 @@ The session string is a private login credential and is never shown back.</block
         await update_user_settings(query, stype="leech")
         if Config.DATABASE_URL:
             await database.update_user_data(user_id)
+    elif data[2] == "audio_bitrate":
+        await query.answer()
+        choices = ["128k", "160k", "192k", "256k", "320k"]
+        current = user_data.get(user_id, {}).get("VT_AUDIO_BITRATE", "192k")
+        if current not in choices:
+            current = "192k"
+        next_value = choices[(choices.index(current) + 1) % len(choices)]
+        update_user_ldata(user_id, "VT_AUDIO_BITRATE", next_value)
+        await update_user_settings(query, stype="vtools")
+        await database.update_user_data(user_id)
     elif data[2] == "set_merge_mode":
         await query.answer()
         update_user_ldata(user_id, "AUTO_MERGE_MODE", data[3])

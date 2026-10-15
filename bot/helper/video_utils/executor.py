@@ -10,7 +10,7 @@ from os import path as ospath, walk, replace as os_replace
 from time import time
 import re
 
-from bot import task_dict, task_dict_lock, queue_dict_lock, non_queued_dl, LOGGER
+from bot import task_dict, task_dict_lock, queue_dict_lock, non_queued_dl, LOGGER, user_data
 from bot.core.config_manager import Config, BinConfig
 config_dict = Config.get_all()
 for _k, _v in {'DISABLE_MULTI_VIDTOOLS': [], 'COMPRESS_BANNER': '', 'HARDSUB_FONT_NAME': '', 'HARDSUB_FONT_SIZE': 24, 'LIB264_PRESET': 'veryfast', 'LIB265_PRESET': 'veryfast', 'VIDTOOLS_FAST_MODE': True}.items():
@@ -20,7 +20,10 @@ VID_MODE = {
     'vid_vid':'Video + Video','vid_vid_audio':'Video + Audio','vid_sub':'Video + Subtitle',
     'subsync':'SubSync','compress':'Compress','convert':'Convert','watermark':'Watermark',
     'remove_ads_names':'Remove Ads & Names','extract':'Extract','trim':'Trim','audio_swap':'Audio Swap',
-    'audio_track':'Audio Track','video_audio_sync':'Audio Sync','audio_channel':'Audio Channel',
+    'audio_track':'Audio Track','audio_export':'Audio Export → M4A',
+    'subtitle_translate':'Translate Existing Subtitles',
+    'audio_to_subtitle':'Audio → Translated Subtitles (Whisper)',
+    'video_audio_sync':'Audio Sync','audio_channel':'Audio Channel',
     'subtitle_swap':'Subtitle Swap / Order','subtitle_rename':'Subtitle Rename',
     'rmstream':'Remove Stream','binary_split':'Media Split → Binary','multivt':'MULTI VT','rename':'Rename',
     'vid_vid_audio_swap':'Video + Video → Audio Swap',
@@ -245,6 +248,12 @@ class VidEcxecutor(FFProgress):
                     return await self._audio_track_postprocess(result)
                 case 'vid_aud' | 'vid_vid_audio':
                     return await self._merge_auds()
+                case 'audio_export':
+                    return await self._audio_export()
+                case 'subtitle_translate':
+                    return await self._audio_to_translated_subtitles(audio_only=False)
+                case 'audio_to_subtitle':
+                    return await self._audio_to_translated_subtitles(audio_only=True)
                 case 'audio_track':
                     video_path = await self._get_video()
                     if not video_path:
@@ -1377,6 +1386,158 @@ class VidEcxecutor(FFProgress):
                 return
 
         return await self._final_path()
+
+    async def _audio_export(self):
+        """Export the first audio stream from a video as a portable AAC/M4A file."""
+        video_path = await self._get_video()
+        if not video_path:
+            LOGGER.warning('Audio Export skipped: no supported media file found')
+            return self._up_path
+
+        base_dir = await self._name_base_dir(video_path, 'Audio Export', False)
+        stem = ospath.splitext(ospath.basename(video_path))[0]
+        output = ospath.join(base_dir, f'{stem}.m4a')
+        suffix = 2
+        while await aiopath.exists(output):
+            output = ospath.join(base_dir, f'{stem} ({suffix}).m4a')
+            suffix += 1
+
+        self.path = video_path
+        self.size = await get_path_size(video_path)
+        self.name = ospath.basename(output)
+        self.outfile = output
+        # Per-user Audio Export bitrate; strict allowlist protects FFmpeg args.
+        owner = getattr(getattr(self.listener, 'message', None), 'from_user', None)
+        user_id = getattr(owner, 'id', None)
+        bitrate = user_data.get(user_id, {}).get('VT_AUDIO_BITRATE', '192k') if user_id else '192k'
+        if bitrate not in {'128k', '160k', '192k', '256k', '320k'}:
+            bitrate = '192k'
+        cmd = [
+            FFMPEG_NAME, '-hide_banner', '-ignore_unknown', '-y', '-i',
+            video_path, '-map', '0:a:0', '-vn', '-sn', '-dn',
+            '-c:a', 'aac', '-b:a', bitrate, '-map_metadata', '0', output
+        ]
+        success = await self._run_cmd(cmd)
+        if success and await aiopath.isfile(output):
+            self._up_path = output
+            return output
+        return self._up_path
+
+    async def _audio_to_translated_subtitles(self, audio_only=False):
+        """Translate embedded subtitles, or independently transcribe audio to translated SRT."""
+        video_path = await self._get_video()
+        if not video_path:
+            LOGGER.warning('Audio-to-subtitles skipped: no supported media file found')
+            return self._up_path
+
+        import os
+        target_language = (self.data.get('subtitle_language') or os.environ.get('VT_SUBTITLE_LANGUAGE') or config_dict.get('VT_SUBTITLE_LANGUAGE') or 'en').strip().lower()
+        # Keep the target language configurable without exposing arbitrary command arguments.
+        if not re.fullmatch(r'[a-z]{2,3}(?:-[a-z]{2,4})?', target_language):
+            target_language = 'en'
+        base_dir = await self._name_base_dir(video_path, 'Translated Subtitles', False)
+        stem = ospath.splitext(ospath.basename(video_path))[0]
+        output = ospath.join(base_dir, f'{stem}.{target_language}.srt')
+        suffix = 2
+        while await aiopath.exists(output):
+            output = ospath.join(base_dir, f'{stem}.{target_language} ({suffix}).srt')
+            suffix += 1
+
+        def _transcribe_translate(source, destination, target, audio_only=False):
+            # Keep subtitle-only mode independent of Whisper; audio mode requires it.
+            import subprocess
+            from deep_translator import GoogleTranslator
+            translator = GoogleTranslator(source='auto', target=target)
+
+            def stamp(seconds):
+                millis = max(0, int(seconds * 1000))
+                hours, millis = divmod(millis, 3_600_000)
+                minutes, millis = divmod(millis, 60_000)
+                secs, millis = divmod(millis, 1000)
+                return f'{hours:02}:{minutes:02}:{secs:02},{millis:03}'
+
+            # Subtitle mode only reads existing embedded subtitles; audio mode ignores them.
+            extracted = destination + '.source.srt'
+            subtitle_rows = []
+            if not audio_only:
+                probe = subprocess.run(
+                    ['ffprobe', '-v', 'error', '-select_streams', 's', '-show_entries',
+                     'stream=index,codec_name', '-of', 'csv=p=0', source],
+                    capture_output=True, text=True, timeout=60, check=False)
+                subtitle_rows = [row.strip() for row in probe.stdout.splitlines() if row.strip()]
+            cues = []
+            if subtitle_rows:
+                result = subprocess.run(
+                    [FFMPEG_NAME, '-hide_banner', '-loglevel', 'error', '-y', '-i', source,
+                     '-map', '0:s:0', '-c:s', 'srt', extracted],
+                    capture_output=True, text=True, timeout=180, check=False)
+                if result.returncode == 0 and ospath.isfile(extracted):
+                    with open(extracted, encoding='utf-8-sig', errors='replace') as handle:
+                        raw = handle.read().strip()
+                    for block in re.split(r'\r?\n\s*\r?\n', raw):
+                        lines = block.splitlines()
+                        if len(lines) >= 3 and '-->' in lines[1]:
+                            cues.append((lines[1].strip(), '\n'.join(lines[2:]).strip()))
+            if cues:
+                with open(destination, 'w', encoding='utf-8') as handle:
+                    for idx, (timing, text) in enumerate(cues, 1):
+                        translated = translator.translate(text[:4500]) if target not in {'auto', 'und'} else text
+                        handle.write(f'{idx}\n{timing}\n{translated.strip()}\n\n')
+                try:
+                    os.remove(extracted)
+                except OSError:
+                    pass
+                return len(cues)
+            try:
+                os.remove(extracted)
+            except OSError:
+                pass
+
+            # Existing-subtitles mode must never silently switch to audio transcription.
+            if not audio_only:
+                raise RuntimeError('No usable embedded text subtitle stream was found. Choose Audio → Translated Subtitles (Whisper) to create subtitles from speech.')
+
+            # Audio mode always transcribes speech with Whisper, regardless of embedded subtitles.
+            from faster_whisper import WhisperModel
+            model_size = (os.environ.get('VT_WHISPER_MODEL') or config_dict.get('VT_WHISPER_MODEL') or 'base').strip().lower()
+            if model_size not in {'tiny', 'base', 'small', 'medium', 'large-v3'}:
+                model_size = 'base'
+            model = WhisperModel(model_size, device='cpu', compute_type='int8')
+            segments, _ = model.transcribe(source, beam_size=5, vad_filter=True)
+            count = 0
+            with open(destination, 'w', encoding='utf-8') as handle:
+                for segment in segments:
+                    text = (segment.text or '').strip()
+                    if not text:
+                        continue
+                    translated = translator.translate(text[:4500]) if target not in {'auto', 'und'} else text
+                    count += 1
+                    handle.write(f'{count}\n{stamp(segment.start)} --> {stamp(segment.end)}\n{translated.strip()}\n\n')
+            if not count:
+                raise RuntimeError('No speech was detected in the selected audio track.')
+            return count
+
+        try:
+            count = await sync_to_async(_transcribe_translate, video_path, output, target_language, audio_only)
+        except ImportError as exc:
+            LOGGER.error('Subtitle translation dependencies are missing: %s', exc)
+            await sendStatusMessage(self.listener.message)
+            return self._up_path
+        except Exception as exc:
+            LOGGER.error('Subtitle processing failed: %s', exc, exc_info=True)
+            try:
+                await sendMessage(str(exc), self.listener.message)
+            except Exception:
+                pass
+            return self._up_path
+
+        self.path = output
+        self.name = ospath.basename(output)
+        self.outfile = output
+        self.size = await get_path_size(output)
+        self._up_path = output
+        LOGGER.info('Created %s translated subtitle cues: %s', count, output)
+        return output
 
     async def _audio_track_postprocess(self, source):
         """Run the same Audio Track rename flow used by standalone Audio Track."""

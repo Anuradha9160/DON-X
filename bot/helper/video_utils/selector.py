@@ -18,11 +18,30 @@ for _k, _v in {'DISABLE_VIDTOOLS': [], 'HARDSUB_FONT_NAME': '', 'HARDSUB_FONT_SI
     config_dict.setdefault(_k, _v)
 PRIVILEGED_ONLY_VT_MODES = {'compress', 'convert', 'watermark', 'subsync', 'video_audio_sync'}
 
+# Broad GoogleTranslator language-code support, with Indian languages first.
+VT_SUBTITLE_LANGUAGES = [
+    ('te', 'Telugu'), ('ta', 'Tamil'), ('hi', 'Hindi'), ('kn', 'Kannada'),
+    ('ml', 'Malayalam'), ('bn', 'Bengali'), ('mr', 'Marathi'), ('gu', 'Gujarati'),
+    ('pa', 'Punjabi'), ('ur', 'Urdu'), ('or', 'Odia'), ('as', 'Assamese'),
+    ('sa', 'Sanskrit'), ('ne', 'Nepali'), ('sd', 'Sindhi'), ('ks', 'Kashmiri'),
+    ('kok', 'Konkani'), ('mai', 'Maithili'), ('doi', 'Dogri'), ('mni', 'Manipuri'),
+    ('sat', 'Santali'), ('en', 'English'), ('es', 'Spanish'), ('fr', 'French'),
+    ('de', 'German'), ('it', 'Italian'), ('pt', 'Portuguese'), ('ru', 'Russian'),
+    ('uk', 'Ukrainian'), ('ar', 'Arabic'), ('fa', 'Persian'), ('tr', 'Turkish'),
+    ('zh-CN', 'Chinese (Simplified)'), ('zh-TW', 'Chinese (Traditional)'),
+    ('ja', 'Japanese'), ('ko', 'Korean'), ('id', 'Indonesian'), ('ms', 'Malay'),
+    ('th', 'Thai'), ('vi', 'Vietnamese'), ('fil', 'Filipino'), ('sw', 'Swahili'),
+    ('nl', 'Dutch'), ('pl', 'Polish'), ('sv', 'Swedish'), ('da', 'Danish'),
+    ('fi', 'Finnish'), ('el', 'Greek'), ('he', 'Hebrew'), ('ro', 'Romanian'),
+    ('hu', 'Hungarian'), ('cs', 'Czech'), ('sk', 'Slovak'), ('bg', 'Bulgarian'),
+    ('hr', 'Croatian'), ('sr', 'Serbian'), ('sq', 'Albanian'), ('af', 'Afrikaans'),
+]
+
 VID_MODE = {
     'vid_vid':'Video + Video','vid_vid_audio':'Video + Audio','vid_sub':'Video + Subtitle',
     'subsync':'SubSync','compress':'Compress','convert':'Convert','watermark':'Watermark',
     'remove_ads_names':'Remove Ads & Names','extract':'Extract','trim':'Trim','audio_swap':'Audio Swap',
-    'audio_track':'Audio Track','video_audio_sync':'Audio Sync','audio_channel':'Audio Channel',
+    'audio_track':'Audio Track','audio_export':'Audio Export → M4A','subtitle_translate':'Translate Existing Subtitles','audio_to_subtitle':'Audio → Translated Subtitles (Whisper)','video_audio_sync':'Audio Sync','audio_channel':'Audio Channel',
     'subtitle_swap':'Subtitle Swap / Order','subtitle_rename':'Subtitle Rename',
     'rmstream':'Remove Stream','binary_split':'Media Split → Binary','multivt':'MULTI VT','rename':'Rename'
 }
@@ -95,6 +114,9 @@ class SelectMode():
             msg += f'\nMode: <b>{vidmode}</b>'
         if self.newname:
             msg += f'\nName: <code>{escape(self.newname)}</code>'
+        if self.mode in ('subtitle_translate', 'audio_to_subtitle'):
+            language = next((name for code, name in VT_SUBTITLE_LANGUAGES if code.lower() == self.extra_data.get('subtitle_language', 'en').lower()), self.extra_data.get('subtitle_language', 'English'))
+            msg += f'\nTarget Language: <b>{escape(language)}</b>'
         if self.mode == 'trim' and self.extra_data:
             msg += f'\nTrim Duration: <b>{self.extra_data.get("start_time", "")} – {self.extra_data.get("end_time", "")}</b>'
         if self.mode in ('vid_sub', 'watermark'):
@@ -218,6 +240,19 @@ class SelectMode():
                 buttons.data_button('Done', 'vidtool done', 'footer')
 
             match mode:
+                case 'subtitle_languages':
+                    page = int(self.extra_data.get('subtitle_language_page', 0))
+                    per_page = 20
+                    languages = VT_SUBTITLE_LANGUAGES[page * per_page:(page + 1) * per_page]
+                    selected = self.extra_data.get('subtitle_language', 'en').lower()
+                    for code, name in languages:
+                        buttons.data_button(f"{'✅ ' if code.lower() == selected else ''}{name}", f'vidtool subtitle_lang {code}')
+                    if page > 0:
+                        buttons.data_button('◀ Previous', f'vidtool subtitle_page {page - 1}', 'footer')
+                    if (page + 1) * per_page < len(VT_SUBTITLE_LANGUAGES):
+                        buttons.data_button('Next ▶', f'vidtool subtitle_page {page + 1}', 'footer')
+                    buttons.data_button('Back', 'vidtool back', 'footer')
+                    buttons.data_button('Done', 'vidtool done', 'footer')
                 case 'merge_mode':
                     merge_mode = self.extra_data.get('merge_mode', 'normal')
                     buttons.data_button(f"{'✅ ' if merge_mode == 'normal' else ''}Normal Mode", 'vidtool merge_mode normal')
@@ -288,6 +323,14 @@ class SelectMode():
                     buttons.data_button('<<', 'vidtool back', 'footer')
 
         caption = self._captions(mode)
+        if mode == 'subtitle_languages':
+            caption = (
+                '<b>Choose Target Language</b>\n\n'
+                ('Translate existing embedded subtitles into your chosen language.\n' if self.mode == 'subtitle_translate' else 'Transcribe the audio with Whisper, then translate the generated subtitles.\n') +
+                'Indian languages include Telugu, Tamil, Hindi, Kannada, Malayalam, Bengali, Marathi, Gujarati, Punjabi, Urdu, Odia, Assamese and more.\n'
+                'Other international languages are available on the next pages.\n\n'
+                'The source language is detected automatically.'
+            )
         if mode == 'merge_mode':
             caption = (
                 '<b>Video + Video — Merge Mode</b>\n\n'
@@ -537,6 +580,16 @@ async def cb_vidtools(_, query: CallbackQuery, obj: SelectMode):
             obj.extra_data['_multi_vt'] = bool(obj.multi_vt)
             obj.message_event.set()
             obj.event.set()
+        case 'subtitle_lang':
+            if len(data) > 2:
+                selected = data[2]
+                if any(code.lower() == selected.lower() for code, _ in VT_SUBTITLE_LANGUAGES):
+                    obj.extra_data['subtitle_language'] = selected
+            await obj.list_buttons('subtitle_languages')
+        case 'subtitle_page':
+            if len(data) > 2 and data[2].isdigit():
+                obj.extra_data['subtitle_language_page'] = max(0, min(int(data[2]), (len(VT_SUBTITLE_LANGUAGES) - 1) // 20))
+            await obj.list_buttons('subtitle_languages')
         case 'merge_mode':
             if len(data) > 2 and data[2] in ('normal', 'advanced'):
                 obj.extra_data['merge_mode'] = data[2]
@@ -641,6 +694,11 @@ async def cb_vidtools(_, query: CallbackQuery, obj: SelectMode):
             else:
                 obj.mode = value
                 obj.extra_data.clear()
+            if value in ('subtitle_translate', 'audio_to_subtitle'):
+                obj.extra_data['subtitle_language'] = 'en'
+                obj.extra_data['subtitle_language_page'] = 0
+                await obj.list_buttons('subtitle_languages')
+                return
             if value == 'vid_vid':
                 obj.extra_data['merge_mode'] = 'normal'
                 await obj.list_buttons('merge_mode')
