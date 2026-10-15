@@ -47,3 +47,9 @@ Check deployment:
 
     systemctl status cantarellabots_bot --no-pager -l
     journalctl -u cantarellabots_bot -f
+
+
+Deployment validation fix (October 2026): required OWNER_ID, TELEGRAM_API, and
+TELEGRAM_HASH values may be supplied as exported environment variables, shell
+assignments near the top of deploy.vps, or values in config.py. The deploy script
+validates the resolved values and persists the effective environment for systemd.

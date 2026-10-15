@@ -12,10 +12,18 @@ fi
 cd "$APP_DIR"
 fail() { echo "ERROR: $*" >&2; exit 1; }
 
+# Export credentials/settings assigned near the top of this script even if
+# they were written as shell assignments without the `export` keyword. Also
+# preserve values exported by the caller; do not print any secret values.
+for key in BOT_TOKEN OWNER_ID TELEGRAM_API TELEGRAM_HASH DATABASE_URL CMD_SUFFIX cmd_suffix \
+           START_REPO_URL START_REPO_BUTTON START_UPDATE_URL START_UPDATE_BUTTON \
+           START_DEV_URL START_DEV_BUTTON; do
+  if [[ -v "$key" ]]; then export "$key"; fi
+done
+
 # Export every config.py variable into this deployment process. Explicitly
-# exported variables supplied by the caller take precedence over config.py.
-# Complex values are emitted using Python literal syntax, which ConfigManager
-# already understands for list/dict settings. Values are never printed.
+# supplied environment variables take precedence over config.py. Complex values
+# are emitted using Python literal syntax, which ConfigManager understands.
 [[ -f config.py ]] || fail "config.py is missing from $APP_DIR"
 eval "$(python3 - <<'PY_EXPORT_CONFIG'
 import runpy, shlex
@@ -165,20 +173,30 @@ venv/bin/python -m py_compile config.py
 BOT_TOKEN="$BOT_TOKEN" venv/bin/python - <<'PYCFG'
 import config
 import os
+
+def resolved_setting(key):
+    # Deployment credentials may be provided via shell exports or configured
+    # in config.py. Prefer the resolved environment because it is also written
+    # into the systemd EnvironmentFile below.
+    env_value = os.environ.get(key)
+    if env_value is not None and env_value.strip() != '':
+        return env_value.strip()
+    return getattr(config, key, None)
+
 required = ('OWNER_ID', 'TELEGRAM_API', 'TELEGRAM_HASH')
-for key in required:
-    value = getattr(config, key, None)
-    if value is None or value == '' or value == 0:
-        raise SystemExit(f'Invalid or missing config.py setting: {key}')
-token = os.environ.get('BOT_TOKEN', '').strip()
+settings = {key: resolved_setting(key) for key in required}
+for key, value in settings.items():
+    if value is None or value == '' or value == 0 or value == '0':
+        raise SystemExit(f'Invalid or missing deployment setting: {key} (set it in deploy.vps, the environment, or config.py)')
+token = os.environ.get('BOT_TOKEN', '').strip() or str(getattr(config, 'BOT_TOKEN', '')).strip()
 if token.count(':') != 1:
-    raise SystemExit('BOT_TOKEN environment variable does not look valid')
+    raise SystemExit('BOT_TOKEN is missing or does not look valid')
 try:
-    int(config.OWNER_ID)
-    int(config.TELEGRAM_API)
+    int(settings['OWNER_ID'])
+    int(settings['TELEGRAM_API'])
 except (TypeError, ValueError):
-    raise SystemExit('OWNER_ID and TELEGRAM_API in config.py must be numeric')
-print('config.py syntax and required settings: OK; BOT_TOKEN environment variable validated (values hidden)')
+    raise SystemExit('OWNER_ID and TELEGRAM_API must be numeric in the environment or config.py')
+print('Configuration syntax and required settings: OK; credentials validated (values hidden)')
 PYCFG
 mkdir -p downloads thumbnails tokens rclone cookies Images configs/sabnzbd
 
