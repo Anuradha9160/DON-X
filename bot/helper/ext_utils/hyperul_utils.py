@@ -77,7 +77,9 @@ class HypertgUpload(HypertgTransfer):
                     image = source.convert("RGB")
                     width, height = image.size
                     longest = max(width, height)
-                    target = 7680
+                    # Keep output crisp without producing multi-megabyte 8K
+                    # thumbnails that Telegram will immediately shrink again.
+                    target = 2560
                     if longest < target:
                         scale = target / float(longest)
                         size = (max(1, round(width * scale)), max(1, round(height * scale)))
@@ -94,9 +96,14 @@ class HypertgUpload(HypertgTransfer):
                     image = ImageEnhance.Color(image).enhance(1.04)
                     image = ImageEnhance.Sharpness(image).enhance(1.08)
                     image = image.filter(
-                        ImageFilter.UnsharpMask(radius=1.6, percent=125, threshold=3)
+                        ImageFilter.UnsharpMask(radius=1.4, percent=115, threshold=3)
                     )
 
+                    # Use FFmpeg's high-quality scaler/sharpening when available;
+                    # Pillow remains the reliable fallback on minimal VPS images.
+                    # Avoid shell=True and keep a bounded timeout.
+                    import shutil
+                    import subprocess
                     os.makedirs("thumbnails/hd", exist_ok=True)
                     digest = hashlib.sha256(
                         f"{self._listener.user_id}:{file_path}:{thumb}".encode()
@@ -105,11 +112,32 @@ class HypertgUpload(HypertgTransfer):
                     image.save(
                         output,
                         "JPEG",
-                        quality=98,
+                        quality=96,
                         subsampling=0,
                         optimize=True,
                         progressive=True,
                     )
+                    ffmpeg = shutil.which("ffmpeg")
+                    if ffmpeg:
+                        enhanced = output + ".ff.jpg"
+                        try:
+                            result = subprocess.run(
+                                [ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+                                 "-i", output, "-vf", "scale='min(2560,iw)':-2:flags=lanczos,unsharp=5:5:0.45:3:3:0.15",
+                                 "-frames:v", "1", "-q:v", "2", enhanced],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                timeout=20, check=False,
+                            )
+                            if result.returncode == 0 and os.path.isfile(enhanced) and os.path.getsize(enhanced) > 0:
+                                os.replace(enhanced, output)
+                            elif os.path.exists(enhanced):
+                                os.remove(enhanced)
+                        except Exception:
+                            try:
+                                if os.path.exists(enhanced):
+                                    os.remove(enhanced)
+                            except OSError:
+                                pass
                     return output
             except Exception as exc:
                 LOGGER.warning(f"HD thumbnail enhancement failed; using original thumbnail: {exc}")

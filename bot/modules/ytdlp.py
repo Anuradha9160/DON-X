@@ -378,6 +378,7 @@ class YtDlp(TaskListener):
         self.link = args["link"]
         self.compress = args["-z"]
         self.thumb = args["-t"]
+        self.thumb_url_override = isinstance(self.thumb, str) and self.thumb.lower().startswith(("http://", "https://"))
         self.split_size = args["-sp"]
         self.sample_video = args["-sv"]
         self.screen_shots = args["-ss"]

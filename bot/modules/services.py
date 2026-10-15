@@ -94,20 +94,32 @@ async def _build_start_buttons():
 
 @new_task
 async def start(_, message):
+    # Telegram normally supplies from_user for /start, but guard malformed or
+    # channel-originated updates so one unusual update cannot break the handler.
+    if not message or not getattr(message, "from_user", None):
+        return
     userid = message.from_user.id
-    user_name = message.from_user.first_name if message.from_user else "User"
-    reply_markup = await _build_start_buttons()
+    user_name = message.from_user.first_name or "User"
+    # Some synthetic, edited, or non-command updates can reach this handler
+    # without Pyrogram's parsed command list. Normalize it once to avoid
+    # TypeError: object of type 'NoneType' has no len().
+    command = getattr(message, "command", None) or []
+    try:
+        reply_markup = await _build_start_buttons()
+    except Exception as exc:
+        LOGGER.exception("Could not build /start menu: %s", exc)
+        reply_markup = None
 
     # Deep link used by the API manager's group-to-DM button. Accept the
     # plain payload and future api_* payloads, and always open the manager in DM.
-    if len(message.command) > 1 and message.command[1].split("_", 1)[0].lower() == "api":
+    if len(command) > 1 and command[1].split("_", 1)[0].lower() == "api":
         from .api_manager import api_command
         return await api_command(_, message)
 
-    if len(message.command) > 1 and message.command[1] in ("wzmlx", "htrx"):
+    if len(command) > 1 and command[1] in ("wzmlx", "htrx"):
         await delete_message(message)
-    elif len(message.command) > 1 and message.command[1] != "start":
-        decrypted_url = decode_slink(message.command[1])
+    elif len(command) > 1 and command[1] != "start":
+        decrypted_url = decode_slink(command[1])
         if Config.MEDIA_STORE and decrypted_url.startswith("file"):
             decrypted_url = decrypted_url.replace("file", "")
             chat_id, msg_id = decrypted_url.split("&&")
@@ -154,17 +166,26 @@ async def start(_, message):
     help_cmd = BotCommands.HelpCommand[0] if isinstance(BotCommands.HelpCommand, list) else BotCommands.HelpCommand
     if await CustomFilters.authorized(_, message):
         start_string = (
-            f"<b>👋 Welcome, {escape(user_name)}!</b>\n\n"
-            f"<blockquote><b>CANTARELLABOTS</b> is ready to mirror and leech files, torrents, and cloud links to Telegram or Cloud Storage.</blockquote>\n\n"
-            f"<b>💡 Commands & Help:</b> Use /{help_cmd} to view all available commands and guides.\n"
-            f"<b>💬 Authorized Chats:</b> Click any of the authorized chat buttons below to access supported groups."
+            f"<b>✨ 👋 WELCOME, {escape(user_name)}!</b>\n"
+            f"<blockquote>💎 <b>CANTARELLABOTS PREMIUM EXPERIENCE</b>\n"
+            f"⚡ Mirror and leech files, torrents, and cloud links with a clean, fast workflow.\n"
+            f"🎬 Media • 📁 Documents • ☁️ Cloud Storage</blockquote>\n"
+            f"<b>🚀 QUICK START</b>\n"
+            f"🧭 Help & commands: /{help_cmd}\n"
+            f"💬 Choose an authorized chat button below to get started.\n\n"
+            f"<i>🌟 Built for a smoother file-transfer experience.</i>"
         )
         await send_message(message, start_string, reply_markup, photo="IMAGES")
     elif Config.BOT_PM:
         start_string = (
-            f"<b>👋 Welcome, {escape(user_name)}!</b>\n\n"
-            f"<blockquote>Bot will send all your files and links here in private message. Start using now!</blockquote>\n\n"
-            f"<b>💬 Authorized Chats:</b> Join any authorized chat below to start tasks."
+            f"<b>✨ 👋 WELCOME, {escape(user_name)}!</b>\n"
+            f"<blockquote>💎 <b>CANTARELLABOTS</b>\n"
+            f"📥 Your completed files and links will arrive here in this private chat.\n"
+            f"⚡ Ready for your next transfer?</blockquote>\n"
+            f"<b>🚀 GET STARTED</b>\n"
+            f"🧭 Send /{help_cmd} to explore commands.\n"
+            f"💬 Join an authorized chat below to start a task.\n\n"
+            f"<i>🌟 Fast, simple, organized.</i>"
         )
         await send_message(
             message,
@@ -174,10 +195,13 @@ async def start(_, message):
         )
     else:
         start_string = (
-            f"<b>👋 Welcome to CANTARELLABOTS, {escape(user_name)}!</b>\n\n"
-            f"<blockquote>Mirror and leech files, torrents, and links to Telegram or Cloud Storage.\n\n"
-            f"<b>Note:</b> You are not authorized to use this bot instance directly in private.</blockquote>\n\n"
-            f"<b>💬 Authorized Chats:</b> Join our authorized chats below to get access."
+            f"<b>✨ 👋 WELCOME TO CANTARELLABOTS, {escape(user_name)}!</b>\n"
+            f"<blockquote>💎 Mirror and leech files, torrents, and links to Telegram or cloud storage.\n"
+            f"🔒 <b>Private access is currently restricted</b> for this bot instance.</blockquote>\n"
+            f"<b>🌐 HOW TO CONTINUE</b>\n"
+            f"💬 Join one of the authorized chats below, then start your task there.\n"
+            f"🧭 Use /{help_cmd} for command guidance.\n\n"
+            f"<i>✨ Thanks for stopping by!</i>"
         )
         await send_message(
             message,

@@ -241,6 +241,7 @@ class Mirror(TaskListener):
         self.extract = args["-e"]
         self.join = args["-j"]
         self.thumb = args["-t"]
+        self.thumb_url_override = isinstance(self.thumb, str) and self.thumb.lower().startswith(("http://", "https://"))
         self.split_size = args["-sp"]
         self.sample_video = args["-sv"]
         self.screen_shots = args["-ss"]
@@ -587,7 +588,7 @@ class Mirror(TaskListener):
             await delete_links(self.message)
             return
 
-        if self.is_leech and (not self.thumb or not await aiopath.exists(self.thumb)):
+        if self.is_leech and not getattr(self, "thumb_url_override", False) and (not self.thumb or not await aiopath.exists(self.thumb)):
             from ..helper.ext_utils.media_utils import create_thumb
             if self.message.photo or (self.message.document and self.message.document.mime_type and self.message.document.mime_type.startswith("image/")):
                 self.thumb = await create_thumb(self.message, self.user_id)

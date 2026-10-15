@@ -328,7 +328,7 @@ async def add_handlers():
     )
     TgClient.bot.add_handler(
         MessageHandler(
-            start, filters=command(BotCommands.StartCommand, case_sensitive=True)
+            start, filters=command(BotCommands.StartCommand, case_sensitive=False)
         )
     )
     TgClient.bot.add_handler(

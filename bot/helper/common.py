@@ -305,6 +305,8 @@ class TaskConfig:
         self.chat_thread_id = None
         self.subproc = None
         self.thumb = None
+        # A URL supplied explicitly with -t takes precedence over every saved/automatic thumbnail mode.
+        self.thumb_url_override = False
         self.excluded_extensions = []
         self.files_to_proceed = []
         self.is_super_chat = self.message.chat.type in [
@@ -911,6 +913,9 @@ class TaskConfig:
                 self.thumb = user_thumb
 
         if self.thumb and self.thumb != "none":
+            if isinstance(self.thumb, str) and self.thumb.lower().startswith(("http://", "https://")):
+                # Preserve explicit -t URL precedence, even when download/validation fails.
+                self.thumb_url_override = True
             if is_telegram_link(self.thumb):
                 msg = (await get_tg_link_message(self.thumb, user_id=self.user_id, user_dict=self.user_dict))[0]
                 self.thumb = (

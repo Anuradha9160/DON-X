@@ -622,7 +622,7 @@ class TaskListener(TaskConfig):
             del yt
         elif self.is_leech:
             LOGGER.info(f"Leech Name: {self.name}")
-            if not self.thumb or not await aiopath.exists(self.thumb):
+            if not getattr(self, "thumb_url_override", False) and (not self.thumb or not await aiopath.exists(self.thumb)):
                 user_thumb = self.user_dict.get("THUMBNAIL") or f"thumbnails/{self.user_id}.jpg"
                 if await aiopath.exists(user_thumb):
                     self.thumb = user_thumb

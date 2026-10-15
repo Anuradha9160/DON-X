@@ -37,12 +37,22 @@ def _tidy(title):
 
 def _final_clean(title):
     base = re.sub(r"[\[\](){}]", " ", title)
-    return _tidy(_QUALITY_TAGS.sub(" ", base)) or _tidy(base)
+    base = _QUALITY_TAGS.sub(" ", base)
+    # Strip emoji/decorative symbols commonly added by uploaders while
+    # preserving Unicode letters, digits, spaces, and meaningful title marks.
+    base = re.sub(r"[^\w\s'&:-]", " ", base, flags=re.UNICODE)
+    return _tidy(base) or _tidy(title)
 
 
 def clean_poster_title(raw_title):
     """Extract the actual movie/series name from a full path or release filename."""
     raw_title = unquote(str(raw_title or "")).replace("\\", "/")
+    # Telegram task captions can include custom-emoji markup such as
+    # [🎬](https://web.telegram.org/k/assets/img/emoji/1f3ac.png), or a bare
+    # decorative emoji before the real release title. Remove linked emoji
+    # markup before URL cleanup so the URL cannot consume the rest of the name.
+    raw_title = re.sub(r"!?\[[^\]]*\]\(https?://[^)]+\)", " ", raw_title)
+    raw_title = re.sub(r"<a\b[^>]*>.*?</a>", " ", raw_title, flags=re.IGNORECASE | re.DOTALL)
     # The caller frequently passes an absolute file path, not just its filename.
     title = raw_title.rsplit("/", 1)[-1]
     stem, ext = splitext(title)
@@ -58,13 +68,18 @@ def clean_poster_title(raw_title):
     title = title.replace("_", " ")
     title = title.replace(".", " ")
     title = re.sub(r"\s+", " ", title).strip()
+    # Ignore leading decorative emoji/symbols (including Telegram custom
+    # emoji placeholders) without stripping letters from the actual title.
+    title = re.sub(r"^[^\w\s]+", "", title, flags=re.UNICODE).strip()
 
     # For episode releases, everything after SxxExxx is release noise. Keep
     # the show name only (e.g. My Hero Academia Vigilantes).
     for pattern in (
-        r"(?<!\w)S0*\d{1,2}\s?E\d{1,3}(?!\w)",
+        # Common release spelling: "My Hero Academia S01 E05 720p".
+        # The season marker is sufficient to end the title even when the
+        # episode marker is separated by whitespace.
+        r"(?<!\w)S0*\d{1,2}(?:[ ._-]*E0*\d{1,3})?(?!\w)",
         r"\bSeason\s+\d{1,2}\b",
-        r"(?<!\w)S0*\d{1,2}(?!\w)",
         r"(?<!\w)(?:E|EP|EPISODE)\s?\d{1,4}(?!\w)",
     ):
         marker = re.search(pattern, title, re.IGNORECASE)
@@ -113,7 +128,13 @@ def _pick_image(images, as_doc):
 
     for group in order:
         if group:
-            return group[0]["file_path"]
+            # TMDb can return several language variants/resolutions. Choose
+            # the largest artwork in the preferred orientation group.
+            best = max(
+                group,
+                key=lambda item: (int(item.get("width") or 0) * int(item.get("height") or 0), int(item.get("vote_count") or 0)),
+            )
+            return best["file_path"]
     return None
 
 

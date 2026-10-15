@@ -21,6 +21,19 @@ for key in BOT_TOKEN OWNER_ID TELEGRAM_API TELEGRAM_HASH DATABASE_URL CMD_SUFFIX
   if [[ -v "$key" ]]; then export "$key"; fi
 done
 
+# Normalize the lowercase spelling before config.py defaults are exported.
+# Uppercase CMD_SUFFIX wins when both forms are supplied; otherwise accept
+# cmd_suffix and persist the normalized value for systemd as CMD_SUFFIX.
+if [[ ! -v CMD_SUFFIX && -v cmd_suffix ]]; then
+  CMD_SUFFIX="$cmd_suffix"
+  export CMD_SUFFIX
+fi
+if [[ -v CMD_SUFFIX ]]; then
+  CMD_SUFFIX="${CMD_SUFFIX#${CMD_SUFFIX%%[![:space:]]*}}"
+  CMD_SUFFIX="${CMD_SUFFIX%${CMD_SUFFIX##*[![:space:]]}}"
+  export CMD_SUFFIX
+fi
+
 # Export every config.py variable into this deployment process. Explicitly
 # supplied environment variables take precedence over config.py. Complex values
 # are emitted using Python literal syntax, which ConfigManager understands.
