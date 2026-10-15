@@ -14,6 +14,7 @@ VT_MODES = [
     ("extract", "Extract"), ("trim", "Trim"),
     ("audio_swap", "Audio Swap"), ("audio_track", "Audio Track"),
     ("video_audio_sync", "Audio Sync"), ("audio_channel", "Audio Channel"),
+    ("subtitle_swap", "Subtitle Swap / Order"), ("subtitle_rename", "Subtitle Rename"),
     ("rmstream", "Remove Stream"), ("binary_split", "Media Split → Binary"),
     ("multivt", "MULTI VT"), ("rename", "Rename"),
 ]

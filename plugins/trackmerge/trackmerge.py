@@ -130,20 +130,31 @@ def _planner_text(s):
 
 
 def _planner_buttons(s):
-    from bot.helper.telegram_helper.button_build import ButtonMaker
-    b = ButtonMaker()
+    from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+    rows = []
     for i, t in enumerate(s["tracks"]):
-        b.data_button(f"{i+1} {'🔊' if t['kind']=='audio' else '📝'} Lang/Edit", f"tmerge edit {s['id']} {i}")
+        kind_label = "🔊 Audio" if t["kind"] == "audio" else "📝 Subtitle"
+        track_label = f"{i+1}. {kind_label}: {t['name'][:32]}"
+        # The track row opens its editor; a clearly visible dedicated Edit
+        # button is placed immediately beneath it for easy mobile use.
+        rows.append([InlineKeyboardButton(track_label, callback_data=f"tmerge edit {s['id']} {i}")])
+        controls = [InlineKeyboardButton(f"✏️ Edit Language / Metadata", callback_data=f"tmerge edit {s['id']} {i}")]
         if i > 0:
-            b.data_button(f"⬆️ {i+1}", f"tmerge move {s['id']} {i} -1")
+            controls.append(InlineKeyboardButton("⬆️ Move Up", callback_data=f"tmerge move {s['id']} {i} -1"))
         if i < len(s["tracks"]) - 1:
-            b.data_button(f"⬇️ {i+1}", f"tmerge move {s['id']} {i} 1")
-        b.data_button(f"❌ {i+1}", f"tmerge rm {s['id']} {i}")
-    b.data_button("➕ Add Track", f"tmerge add {s['id']}", position="footer")
-    b.data_button("✏️ Rename Output", f"tmerge name {s['id']}", position="footer")
-    b.data_button("🚀 Done & Start", f"tmerge done {s['id']}", position="footer")
-    b.data_button("🗑️ Cancel", f"tmerge cancel {s['id']}", position="footer")
-    return b.build_menu(3)
+            controls.append(InlineKeyboardButton("⬇️ Move Down", callback_data=f"tmerge move {s['id']} {i} 1"))
+        controls.append(InlineKeyboardButton("❌ Remove", callback_data=f"tmerge rm {s['id']} {i}"))
+        rows.append(controls)
+    rows.append([
+        InlineKeyboardButton("➕ Add Track", callback_data=f"tmerge add {s['id']}"),
+        InlineKeyboardButton("✏️ Rename Output", callback_data=f"tmerge name {s['id']}"),
+    ])
+    rows.append([
+        InlineKeyboardButton("🚀 Done & Start", callback_data=f"tmerge done {s['id']}"),
+        InlineKeyboardButton("🗑️ Cancel", callback_data=f"tmerge cancel {s['id']}"),
+    ])
+    return InlineKeyboardMarkup(rows)
 
 
 async def _show(s):

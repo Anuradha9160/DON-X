@@ -13,6 +13,7 @@ VID_MODE = {
     'subsync':'SubSync','compress':'Compress','convert':'Convert','watermark':'Watermark',
     'remove_ads_names':'Remove Ads & Names','extract':'Extract','trim':'Trim','audio_swap':'Audio Swap',
     'audio_track':'Audio Track','video_audio_sync':'Audio Sync','audio_channel':'Audio Channel',
+    'subtitle_swap':'Subtitle Swap / Order','subtitle_rename':'Subtitle Rename',
     'rmstream':'Remove Stream','binary_split':'Media Split → Binary','multivt':'MULTI VT','rename':'Rename'
 }
 from bot.helper.ext_utils.bot_utils import new_thread
@@ -292,6 +293,54 @@ class ExtraSelect:
 
         await self.update_message(text, buttons.build_menu(2))
 
+    async def subtitle_swap_select(self, streams: dict):
+        """Choose subtitle order; the first selected subtitle becomes default."""
+        self.executor.executor_streams = streams
+        if not self.executor.data:
+            self.executor.data = {'key': []}
+        selected = self.executor.data.get('key', [])
+        subs = [s for s in streams if s.get('codec_type') == 'subtitle']
+        ordered = sorted(subs, key=lambda x: selected.index(x.get('index')) if x.get('index') in selected else len(selected) + subs.index(x))
+        buttons = ButtonMaker()
+        text = (f'<b>SUBTITLE SWAP / ORDER ~ {self._listener.tag}</b>\n'
+                f'<code>{self.executor.name}</code>\n\n'
+                'Select subtitle tracks in the order you want. The first selected track becomes the default.\n')
+        if selected:
+            text += '\n<b>Selected order:</b>\n'
+            for pos, idx in enumerate(selected, 1):
+                stream = next((x for x in subs if x.get('index') == idx), None)
+                if stream:
+                    tags = stream.get('tags', {})
+                    text += f"{pos}. {(tags.get('language') or tags.get('title') or f'Subtitle {idx}').upper()}\n"
+        for stream in ordered:
+            idx = stream.get('index')
+            tags = stream.get('tags', {})
+            label = tags.get('language') or tags.get('title') or f'Subtitle {idx}'
+            buttons.data_button(f"{'✅ ' if idx in selected else ''}💬 {label}", f'extra subtitle_swap {idx}')
+        buttons.data_button('Clear Selection', 'extra subtitle_swap clear', 'header')
+        buttons.data_button('Cancel', 'extra cancel', 'footer')
+        buttons.data_button('Continue', 'extra subtitle_swap done', 'footer')
+        await self.update_message(text, buttons.build_menu(2))
+
+    async def subtitle_rename_select(self, streams: dict):
+        self.executor.executor_streams = streams
+        if not self.executor.data:
+            self.executor.data = {'rename': {}}
+        rename_map = self.executor.data.get('rename', {})
+        buttons = ButtonMaker()
+        text = f'<b>SUBTITLE TRACK NAMES ~ {self._listener.tag}</b>\n<code>{self.executor.name}</code>\n\n'
+        subs = [s for s in streams if s.get('codec_type') == 'subtitle']
+        for stream in subs:
+            idx = stream.get('index')
+            tags = stream.get('tags', {})
+            label = rename_map.get(str(idx)) or tags.get('language') or tags.get('title') or f'Subtitle {idx}'
+            buttons.data_button(f'✏ {label}', f'extra subtitle_rename {idx}')
+            text += f'• {label}\n'
+        text += '\nSend a new name/language when prompted. Existing subtitles remain unchanged unless renamed.'
+        buttons.data_button('Cancel', 'extra cancel', 'footer')
+        buttons.data_button('Done', 'extra subtitle_rename done', 'footer')
+        await self.update_message(text, buttons.build_menu(2))
+
     async def audio_channel_select(self, streams: dict):
         """Select an audio track and target channel layout."""
         self.executor.executor_streams = streams
@@ -515,6 +564,56 @@ async def cb_extra(_, query: CallbackQuery, obj: ExtraSelect):
             await obj.audio_swap_select(obj.executor.executor_streams)
 
 
+        case 'subtitle_swap':
+            if len(data) < 3:
+                await query.answer()
+                return
+            value = data[2]
+            if value == 'done':
+                if not obj.executor.data or not obj.executor.data.get('key'):
+                    await query.answer('Select at least one subtitle track!', show_alert=True)
+                    return
+                await query.answer('Subtitle order saved')
+                obj.event.set()
+                return
+            await query.answer()
+            if value == 'clear':
+                obj.executor.data = {'key': []}
+            else:
+                try:
+                    idx = int(value)
+                except ValueError:
+                    return
+                selected = obj.executor.data.setdefault('key', [])
+                if idx in selected:
+                    selected.remove(idx)
+                else:
+                    selected.append(idx)
+            await obj.subtitle_swap_select(obj.executor.executor_streams)
+
+        case 'subtitle_rename':
+            if len(data) < 3:
+                await query.answer()
+                return
+            if data[2] == 'done':
+                if not obj.executor.data.get('rename'):
+                    await query.answer('Rename at least one subtitle track!', show_alert=True)
+                    return
+                await query.answer('Subtitle names saved')
+                obj.event.set()
+                return
+            try:
+                idx = int(data[2])
+            except (TypeError, ValueError):
+                await query.answer()
+                return
+            await query.answer()
+            if not obj.executor.data:
+                obj.executor.data = {'rename': {}}
+            obj.executor.data['waiting'] = idx
+            msg = await sendMessage(f'Send name/language for subtitle track {idx}', obj._listener.message)
+            obj.executor.data['prompt_msg'] = msg.id
+
         case 'audio_channel':
             if len(data) < 3:
                 await query.answer()
@@ -685,4 +784,7 @@ async def rename_message_handler(_, message, obj: ExtraSelect):
     obj.executor.data.pop("prompt_msg", None)
     obj.executor.data.pop("waiting", None)
 
-    await obj.audio_rename_select(obj.executor.executor_streams)
+    if obj.executor.mode == 'subtitle_rename':
+        await obj.subtitle_rename_select(obj.executor.executor_streams)
+    else:
+        await obj.audio_rename_select(obj.executor.executor_streams)

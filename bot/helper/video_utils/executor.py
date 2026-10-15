@@ -21,6 +21,7 @@ VID_MODE = {
     'subsync':'SubSync','compress':'Compress','convert':'Convert','watermark':'Watermark',
     'remove_ads_names':'Remove Ads & Names','extract':'Extract','trim':'Trim','audio_swap':'Audio Swap',
     'audio_track':'Audio Track','video_audio_sync':'Audio Sync','audio_channel':'Audio Channel',
+    'subtitle_swap':'Subtitle Swap / Order','subtitle_rename':'Subtitle Rename',
     'rmstream':'Remove Stream','binary_split':'Media Split → Binary','multivt':'MULTI VT','rename':'Rename',
     'vid_vid_audio_swap':'Video + Video → Audio Swap',
     'vid_vid_rmstream':'Video + Video → Remove Stream',
@@ -273,6 +274,10 @@ class VidEcxecutor(FFProgress):
                     return await self._rm_stream()
                 case 'audio_swap':
                     return await self._vid_audio_swap()
+                case 'subtitle_swap':
+                    return await self._vid_subtitle_swap()
+                case 'subtitle_rename':
+                    return await self._subtitle_rename()
                 case 'audio_channel':
                     return await self._audio_channel()
                 case 'audio_rename':
@@ -1168,6 +1173,111 @@ class VidEcxecutor(FFProgress):
     
     
 
+
+    async def _vid_subtitle_swap(self):
+        """Reorder embedded subtitle streams while copying video/audio unchanged."""
+        file_list = await self._get_files()
+        if not file_list:
+            return self._up_path
+        main_video = file_list[0]
+        if self._metadata:
+            base_dir = self.listener.dir
+            await makedirs(base_dir, exist_ok=True)
+            streams = self._metadata[0]
+        else:
+            base_dir, (streams, _), self.size = await gather(
+                self._name_base_dir(main_video, 'SubtitleSwap', len(file_list) > 1),
+                get_metavideo(main_video), get_path_size(main_video))
+        await self._start_handler(streams)
+        await gather(self._send_status(), self.event.wait())
+        await self._queue()
+        if self.is_cancel:
+            return self._up_path
+        selected = self.data.get('key') if isinstance(self.data, dict) else None
+        if not isinstance(selected, list) or not selected:
+            return self._up_path
+        subtitles = [s['index'] for s in streams if s.get('codec_type') == 'subtitle']
+        order = [idx for idx in selected if idx in subtitles]
+        order += [idx for idx in subtitles if idx not in order]
+        if not order:
+            return self._up_path
+        audio = [s['index'] for s in streams if s.get('codec_type') == 'audio']
+        video = [s['index'] for s in streams if s.get('codec_type') == 'video']
+        mapped = set(video + audio + order)
+        other = [s['index'] for s in streams if s.get('index') not in mapped]
+        for file in file_list:
+            self.path = file
+            if not self._metadata:
+                await self._name_base_dir(file, 'SubtitleSwap', len(file_list) > 1)
+            self.outfile = ospath.join(base_dir, self.name)
+            cmd = [FFMPEG_NAME, '-hide_banner', '-ignore_unknown', '-y', '-i', file]
+            for idx in video + audio + order + other:
+                cmd += ['-map', f'0:{idx}']
+            cmd += ['-map_metadata', '0', '-c', 'copy']
+            for i in range(len(order)):
+                cmd += [f'-disposition:s:{i}', '0']
+            cmd += ['-disposition:s:0', 'default', self.outfile]
+            ok = await self._run_cmd(cmd)
+            if self.is_cancel:
+                return self._up_path
+            if not ok:
+                return self._up_path
+        return await self._final_path()
+
+    async def _subtitle_rename(self):
+        """Rename/language-tag selected subtitle streams without re-encoding."""
+        file_list = await self._get_files()
+        if not file_list:
+            return self._up_path
+        if self._metadata:
+            base_dir = self.listener.dir
+            await makedirs(base_dir, exist_ok=True)
+            streams = self._metadata[0]
+        else:
+            main_video = file_list[0]
+            base_dir, (streams, _), self.size = await gather(
+                self._name_base_dir(main_video, 'SubtitleRename', len(file_list) > 1),
+                get_metavideo(main_video), get_path_size(main_video))
+        await self._start_handler(streams)
+        await gather(self._send_status(), self.event.wait())
+        await self._queue()
+        if self.is_cancel:
+            return self._up_path
+        rename_map = self.data.get('rename', {}) if isinstance(self.data, dict) else {}
+        if not rename_map:
+            return self._up_path
+        sub_streams = [s for s in streams if s.get('codec_type') == 'subtitle']
+        for file in file_list:
+            self.path = file
+            if not self._metadata:
+                await self._name_base_dir(file, 'SubtitleRename', len(file_list) > 1)
+            self.outfile = ospath.join(base_dir, self.name)
+            cmd = [FFMPEG_NAME, '-hide_banner', '-ignore_unknown', '-y', '-i', file, '-map', '0', '-map_metadata', '0']
+            for i, stream in enumerate(sub_streams):
+                name = rename_map.get(str(stream.get('index')))
+                if name:
+                    clean_name = name.strip()
+                    lang_aliases = {
+                        'english': 'eng', 'telugu': 'tel', 'tamil': 'tam',
+                        'hindi': 'hin', 'malayalam': 'mal', 'kannada': 'kan',
+                        'japanese': 'jpn', 'korean': 'kor', 'chinese': 'zho',
+                        'mandarin': 'zho', 'spanish': 'spa', 'french': 'fra',
+                        'german': 'deu', 'italian': 'ita', 'portuguese': 'por',
+                        'russian': 'rus', 'arabic': 'ara', 'indonesian': 'ind',
+                        'thai': 'tha', 'vietnamese': 'vie', 'bengali': 'ben',
+                        'marathi': 'mar', 'urdu': 'urd',
+                    }
+                    lang = lang_aliases.get(clean_name.lower())
+                    cmd += [f'-metadata:s:s:{i}', f'title={clean_name}']
+                    if lang:
+                        cmd += [f'-metadata:s:s:{i}', f'language={lang}']
+            cmd += ['-c', 'copy', self.outfile]
+            ok = await self._run_cmd(cmd)
+            if self.is_cancel:
+                return self._up_path
+            if not ok:
+                return self._up_path
+        return await self._final_path()
 
     async def _video_audio_sync(self):
         """Automatically synchronize embedded video/audio timestamps."""
