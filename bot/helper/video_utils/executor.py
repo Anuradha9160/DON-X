@@ -246,7 +246,17 @@ class VidEcxecutor(FFProgress):
                     return await self._merge_auds()
                 case 'audio_track':
                     video_path = await self._get_video()
-                    return await self._audio_track_postprocess(video_path) if video_path else self._up_path
+                    if not video_path:
+                        return self._up_path
+                    # Audio Track only edits stream metadata in-place. The menu
+                    # label/name (sometimes "🎬 .mkv") must never replace the
+                    # real media filename used for upload/status.
+                    self.name = ospath.basename(video_path)
+                    self.path = video_path
+                    result = await self._audio_track_postprocess(video_path)
+                    self.outfile = result or video_path
+                    self._up_path = result or video_path
+                    return self._up_path
                 case 'rename':
                     return await self._rename_output()
                 case 'vid_sub':
@@ -1286,6 +1296,8 @@ class VidEcxecutor(FFProgress):
             return source
 
         source_dir, source_name = ospath.split(source)
+        # Keep the actual source basename; UI mode labels are not filenames.
+        self.name = source_name
         source_stem, source_ext = ospath.splitext(source_name)
         temp = ospath.join(source_dir, f'{source_stem}.audio-track.tmp{source_ext or ".mkv"}')
         cmd = [
