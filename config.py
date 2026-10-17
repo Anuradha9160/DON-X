@@ -1,16 +1,16 @@
 # REQUIRED CONFIG
 BOT_TOKEN = ""
-OWNER_ID = 0
-TELEGRAM_API = 0
-TELEGRAM_HASH = ""
-DATABASE_URL = ""
+OWNER_ID = 8663988850
+TELEGRAM_API = 22266643
+TELEGRAM_HASH = "7d0b85b4146034511b8776ed7ff99de4'"
+DATABASE_URL = "mongodb+srv://hemanthbreaker2027:9550399779htr@cluster0.haybbxg.mongodb.net/?appName=Cluster0"
 # OPTIONAL CONFIG
 DEFAULT_LANG = "en"
 VT_SUBTITLE_LANGUAGE = "en"  # Language code for VT translated subtitles (e.g. en, hi, te, ta)
 VT_WHISPER_MODEL = "base"  # tiny, base, small, medium, or large-v3
 TG_PROXY = None  # {"scheme": "socks5", "hostname": "", "port": 1234, "username": "user", "password": "pass"}
 USER_SESSION_STRING = ""
-CMD_SUFFIX = ""
+CMD_SUFFIX = "a"
 AUTHORIZED_CHATS = ""
 SUDO_USERS = ""
 STATUS_LIMIT = 10
