@@ -326,10 +326,10 @@ class SelectMode():
         if mode == 'subtitle_languages':
             caption = (
                 '<b>Choose Target Language</b>\n\n'
-                ('Translate existing embedded subtitles into your chosen language.\n' if self.mode == 'subtitle_translate' else 'Transcribe the audio with Whisper, then translate the generated subtitles.\n') +
-                'Indian languages include Telugu, Tamil, Hindi, Kannada, Malayalam, Bengali, Marathi, Gujarati, Punjabi, Urdu, Odia, Assamese and more.\n'
-                'Other international languages are available on the next pages.\n\n'
-                'The source language is detected automatically.'
+                + ('Translate existing embedded subtitles into your chosen language.\n' if self.mode == 'subtitle_translate' else 'Transcribe the audio with Whisper, then translate the generated subtitles.\n')
+                + 'Indian languages include Telugu, Tamil, Hindi, Kannada, Malayalam, Bengali, Marathi, Gujarati, Punjabi, Urdu, Odia, Assamese and more.\n'
+                + 'Other international languages are available on the next pages.\n\n'
+                + 'The source language is detected automatically.'
             )
         if mode == 'merge_mode':
             caption = (

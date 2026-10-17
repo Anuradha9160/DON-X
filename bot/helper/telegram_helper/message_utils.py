@@ -2,6 +2,8 @@ from asyncio import sleep, gather
 from random import choice
 from re import match as re_match
 from time import time
+import json
+import aiohttp
 
 from pyrogram.types import Message, InputMediaPhoto, ReplyParameters
 from pyrogram.enums import ButtonStyle, ParseMode
@@ -440,6 +442,66 @@ async def get_tg_link_message(link, range_mode="normal", user_id=None, user_dict
         )
 
 
+async def _rich_api(method, payload):
+    """Call Telegram Bot API Rich Messages methods (Bot API 10.1+)."""
+    token = Config.BOT_TOKEN
+    if not token:
+        raise RuntimeError("BOT_TOKEN is not configured")
+    url = f"https://api.telegram.org/bot{token}/{method}"
+    timeout = aiohttp.ClientTimeout(total=20)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with session.post(url, json=payload) as response:
+            data = await response.json(content_type=None)
+    if not data.get("ok"):
+        raise RuntimeError(data.get("description", f"{method} failed"))
+    return data.get("result")
+
+
+def _rich_markup(markup):
+    if not markup:
+        return None
+    rows = []
+    for row in getattr(markup, "inline_keyboard", []):
+        converted = []
+        for button in row:
+            item = {"text": button.text}
+            for field in ("url", "callback_data", "web_app", "login_url", "switch_inline_query", "switch_inline_query_current_chat", "callback_game", "pay"):
+                value = getattr(button, field, None)
+                if value is not None:
+                    item[field] = value
+                    break
+            if len(item) > 1:
+                converted.append(item)
+        if converted:
+            rows.append(converted)
+    return {"inline_keyboard": rows} if rows else None
+
+
+async def _send_rich_status(chat_id, text, markup=None, reply_to=None):
+    payload = {"chat_id": int(chat_id), "rich_message": {"html": text}}
+    keyboard = _rich_markup(markup)
+    if keyboard:
+        payload["reply_markup"] = keyboard
+    if reply_to:
+        payload["reply_parameters"] = {"message_id": int(reply_to)}
+    result = await _rich_api("sendRichMessage", payload)
+    # Fetch a Pyrogram Message so existing status callbacks/editing keep working.
+    return await TgClient.bot.get_messages(int(chat_id), int(result["message_id"]))
+
+
+async def _edit_rich_status(message, text, markup=None):
+    payload = {
+        "chat_id": int(message.chat.id),
+        "message_id": int(message.id),
+        "rich_message": {"html": text},
+    }
+    keyboard = _rich_markup(markup)
+    if keyboard:
+        payload["reply_markup"] = keyboard
+    await _rich_api("editMessageText", payload)
+    return await TgClient.bot.get_messages(int(message.chat.id), int(message.id))
+
+
 async def update_status_message(sid, force=False):
     if intervals["stopAll"]:
         return
@@ -466,9 +528,8 @@ async def update_status_message(sid, force=False):
                 del intervals["status"][sid]
             return
         if text != status_dict[sid]["message"].text:
-            message = await edit_message(
-                status_dict[sid]["message"], text, buttons, block=False, photo="IMAGES"
-            )
+            # Strict native Telegram Rich Messages: never downgrade to legacy formatting.
+            message = await _edit_rich_status(status_dict[sid]["message"], text, buttons)
             if isinstance(message, str):
                 if message.startswith("Telegram says: [40"):
                     del status_dict[sid]
@@ -505,18 +566,16 @@ async def send_status_message(msg, user_id=0, force_new=False):
                 return
 
             if not force_new and status_dict[sid].get("message"):
-                edited = await edit_message(
-                    status_dict[sid]["message"], text, buttons, block=False, photo="IMAGES"
-                )
+                # Strict native Telegram Rich Messages: errors are surfaced, never downgraded.
+                edited = await _edit_rich_status(status_dict[sid]["message"], text, buttons)
                 if not isinstance(edited, str):
                     status_dict[sid]["message"].text = text
                     status_dict[sid]["time"] = time()
                     return
 
             old_message = status_dict[sid]["message"]
-            message = await send_message(
-                msg, text, buttons, block=False, photo="IMAGES"
-            )
+            chat_id = msg.chat.id if isinstance(msg, Message) else int(msg)
+            message = await _send_rich_status(chat_id, text, buttons, msg.id if isinstance(msg, Message) else None)
             if isinstance(message, str):
                 LOGGER.error(
                     f"Status with id: {sid} haven't been sent. Error: {message}"
@@ -529,9 +588,8 @@ async def send_status_message(msg, user_id=0, force_new=False):
             text, buttons = await get_readable_message(sid, is_user)
             if text is None:
                 return
-            message = await send_message(
-                msg, text, buttons, block=False, photo="IMAGES"
-            )
+            chat_id = msg.chat.id if isinstance(msg, Message) else int(msg)
+            message = await _send_rich_status(chat_id, text, buttons, msg.id if isinstance(msg, Message) else None)
             if isinstance(message, str):
                 LOGGER.error(
                     f"Status with id: {sid} haven't been sent. Error: {message}"
