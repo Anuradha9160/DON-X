@@ -528,8 +528,11 @@ async def update_status_message(sid, force=False):
                 del intervals["status"][sid]
             return
         if text != status_dict[sid]["message"].text:
-            # Strict native Telegram Rich Messages: never downgrade to legacy formatting.
-            message = await _edit_rich_status(status_dict[sid]["message"], text, buttons)
+            try:
+                message = await _edit_rich_status(status_dict[sid]["message"], text, buttons)
+            except Exception:
+                LOGGER.error("Native Rich Message status edit failed; legacy fallback is disabled", exc_info=True)
+                return
             if isinstance(message, str):
                 if message.startswith("Telegram says: [40"):
                     del status_dict[sid]
@@ -566,16 +569,23 @@ async def send_status_message(msg, user_id=0, force_new=False):
                 return
 
             if not force_new and status_dict[sid].get("message"):
-                # Strict native Telegram Rich Messages: errors are surfaced, never downgraded.
-                edited = await _edit_rich_status(status_dict[sid]["message"], text, buttons)
+                try:
+                    edited = await _edit_rich_status(status_dict[sid]["message"], text, buttons)
+                except Exception:
+                    LOGGER.error("Native Rich Message status edit failed; legacy fallback is disabled", exc_info=True)
+                    return
                 if not isinstance(edited, str):
                     status_dict[sid]["message"].text = text
                     status_dict[sid]["time"] = time()
                     return
 
             old_message = status_dict[sid]["message"]
-            chat_id = msg.chat.id if isinstance(msg, Message) else int(msg)
-            message = await _send_rich_status(chat_id, text, buttons, msg.id if isinstance(msg, Message) else None)
+            try:
+                chat_id = msg.chat.id if isinstance(msg, Message) else int(msg)
+                message = await _send_rich_status(chat_id, text, buttons, msg.id if isinstance(msg, Message) else None)
+            except Exception:
+                LOGGER.error("Native Rich Message status send failed; legacy fallback is disabled", exc_info=True)
+                return
             if isinstance(message, str):
                 LOGGER.error(
                     f"Status with id: {sid} haven't been sent. Error: {message}"
@@ -588,8 +598,12 @@ async def send_status_message(msg, user_id=0, force_new=False):
             text, buttons = await get_readable_message(sid, is_user)
             if text is None:
                 return
-            chat_id = msg.chat.id if isinstance(msg, Message) else int(msg)
-            message = await _send_rich_status(chat_id, text, buttons, msg.id if isinstance(msg, Message) else None)
+            try:
+                chat_id = msg.chat.id if isinstance(msg, Message) else int(msg)
+                message = await _send_rich_status(chat_id, text, buttons, msg.id if isinstance(msg, Message) else None)
+            except Exception:
+                LOGGER.error("Native Rich Message status send failed; legacy fallback is disabled", exc_info=True)
+                return
             if isinstance(message, str):
                 LOGGER.error(
                     f"Status with id: {sid} haven't been sent. Error: {message}"

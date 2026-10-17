@@ -954,6 +954,22 @@ Configure custom video encoding, compression, and watermark overlays for uploads
             f"🎧 Audio Export Quality: {audio_bitrate}",
             f"userset {user_id} audio_bitrate",
         )
+        audio_split_enabled = bool(user_dict.get("AUDIO_SPLIT_ENABLED", False))
+        audio_split_languages = user_dict.get("AUDIO_SPLIT_LANGUAGES", "te,ta,hi")
+        buttons.data_button(
+            f"Audio Split on Incoming Tasks: {'✓ ON' if audio_split_enabled else 'OFF'}",
+            f"userset {user_id} tog_audio_split",
+        )
+        if audio_split_enabled:
+            audio_split_suffix = bool(user_dict.get("AUDIO_SPLIT_LANGUAGE_SUFFIX", False))
+            buttons.data_button(
+                f"Language Suffix in Filename: {'✓ ON' if audio_split_suffix else 'OFF'}",
+                f"userset {user_id} tog_audio_split_suffix",
+            )
+            buttons.data_button(
+                f"Audio Split Languages: {audio_split_languages}",
+                f"userset {user_id} audio_split_languages",
+            )
 
         buttons.data_button("◀️ Back", f"userset {user_id} back", "footer")
         buttons.data_button(
@@ -966,7 +982,9 @@ Configure custom video encoding, compression, and watermark overlays for uploads
 <blockquote>• <b>User:</b> {user_name}
 • <b>Auto Video Merge:</b> <b>{'Enabled (' + merge_mode.title() + ' Mode)' if auto_merge else 'Disabled'}</b>
 • <b>Keep Original Files on Merge:</b> <b>{'Enabled' if save_files else 'Disabled'}</b>
-• <b>Audio Export Quality:</b> <code>{audio_bitrate}</code> AAC</blockquote>"""
+• <b>Audio Export Quality:</b> <code>{audio_bitrate}</code> AAC
+• <b>Automatic Audio Split:</b> <b>{'Enabled' if audio_split_enabled else 'Disabled'}</b>
+{f"• <b>Language Suffix in Filename:</b> <b>{'Enabled' if user_dict.get('AUDIO_SPLIT_LANGUAGE_SUFFIX', False) else 'Disabled'}</b>\n• <b>Split Languages:</b> <code>{escape(str(audio_split_languages))}</code>" if audio_split_enabled else "• <b>Split Languages:</b> <code>{escape(str(audio_split_languages))}</code> (saved)"}</blockquote>"""
 
     elif stype == "uphoster":
         uphoster_service = user_dict.get("UPHOSTER_SERVICE", "gofile")
@@ -3023,6 +3041,31 @@ The session string is a private login credential and is never shown back.</block
         await update_user_settings(query, stype="leech")
         if Config.DATABASE_URL:
             await database.update_user_data(user_id)
+    elif data[2] == "tog_audio_split":
+        await query.answer()
+        update_user_ldata(user_id, "AUDIO_SPLIT_ENABLED", not bool(user_dict.get("AUDIO_SPLIT_ENABLED", False)))
+        await update_user_settings(query, stype="vtools")
+        await database.update_user_data(user_id)
+    elif data[2] == "tog_audio_split_suffix":
+        await query.answer()
+        update_user_ldata(user_id, "AUDIO_SPLIT_LANGUAGE_SUFFIX", not bool(user_dict.get("AUDIO_SPLIT_LANGUAGE_SUFFIX", False)))
+        await update_user_settings(query, stype="vtools")
+        await database.update_user_data(user_id)
+    elif data[2] == "audio_split_languages":
+        await query.answer("Choose language preset", show_alert=False)
+        # Presets accept either ISO codes or full language names; the splitter normalizes both.
+        presets = [
+            "te,ta,hi", "telugu,tamil,hindi", "te,ta,hi,kn",
+            "telugu,tamil,hindi,kannada", "te,ta,hi,ml",
+            "telugu,tamil,hindi,malayalam", "en,te,ta,hi",
+            "english,telugu,tamil,hindi", "te", "telugu", "ta", "tamil",
+            "hi", "hindi", "kn", "kannada", "ml", "malayalam",
+        ]
+        current = str(user_dict.get("AUDIO_SPLIT_LANGUAGES", "te,ta,hi")).strip().lower()
+        next_value = presets[(presets.index(current) + 1) % len(presets)] if current in presets else presets[0]
+        update_user_ldata(user_id, "AUDIO_SPLIT_LANGUAGES", next_value)
+        await update_user_settings(query, stype="vtools")
+        await database.update_user_data(user_id)
     elif data[2] == "audio_bitrate":
         await query.answer()
         choices = ["128k", "160k", "192k", "256k", "320k"]

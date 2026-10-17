@@ -20,7 +20,7 @@ VID_MODE = {
     'vid_vid':'Video + Video','vid_vid_audio':'Video + Audio','vid_sub':'Video + Subtitle',
     'subsync':'SubSync','compress':'Compress','convert':'Convert','watermark':'Watermark',
     'remove_ads_names':'Remove Ads & Names','extract':'Extract','trim':'Trim','audio_swap':'Audio Swap',
-    'audio_track':'Audio Track','audio_export':'Audio Export → M4A',
+    'audio_track':'Audio Track','audio_export':'Audio Export → M4A','audio_split':'Audio Split (Language Variants)',
     'subtitle_translate':'Translate Existing Subtitles',
     'audio_to_subtitle':'Audio → Translated Subtitles (Whisper)',
     'video_audio_sync':'Audio Sync','audio_channel':'Audio Channel',
@@ -250,6 +250,8 @@ class VidEcxecutor(FFProgress):
                     return await self._merge_auds()
                 case 'audio_export':
                     return await self._audio_export()
+                case 'audio_split':
+                    return await self._audio_split()
                 case 'subtitle_translate':
                     return await self._audio_to_translated_subtitles(audio_only=False)
                 case 'audio_to_subtitle':
@@ -1422,6 +1424,241 @@ class VidEcxecutor(FFProgress):
             self._up_path = output
             return output
         return self._up_path
+
+
+    async def _audio_split(self):
+        """Split every supported video in a file or folder task.
+
+        Folder/archive tasks produce one result ZIP containing all successful
+        language variants. Missing languages and non-video files are skipped.
+        """
+        import os
+        from zipfile import ZipFile, ZIP_DEFLATED
+
+        if not self._is_dir:
+            return await self._audio_split_single()
+
+        original_path, original_name, original_up_path = self.path, self.name, self._up_path
+        original_outfile, original_size = self.outfile, self.size
+        video_files = []
+        for dirpath, _, files in await sync_to_async(walk, original_path):
+            for filename in natsorted(files):
+                candidate = ospath.join(dirpath, filename)
+                try:
+                    if (await aiopath.isfile(candidate)) and (await get_document_type(candidate))[0]:
+                        video_files.append(candidate)
+                except Exception:
+                    LOGGER.debug("Audio Split: skipped unreadable folder entry %s", candidate, exc_info=True)
+
+        if not video_files:
+            LOGGER.warning("Audio Split: folder contains no supported video files: %s", original_path)
+            return original_up_path
+
+        folder_base = ospath.basename(ospath.normpath(original_path)) or "Audio_Split"
+        archive = ospath.join(self.listener.dir, f"{folder_base}_audio_split_results.zip")
+        try:
+            if await aiopath.exists(archive):
+                os.remove(archive)
+        except Exception:
+            pass
+
+        successful = 0
+        try:
+            with ZipFile(archive, "w", ZIP_DEFLATED) as combined:
+                for candidate in video_files:
+                    relative = ospath.relpath(candidate, original_path)
+                    self.path = candidate
+                    self._is_dir = False
+                    self._up_path = candidate
+                    self.outfile = ""
+                    self.name = ospath.basename(candidate)
+                    result = await self._audio_split_single()
+                    if not result or not await aiopath.isfile(str(result)) or not str(result).lower().endswith(".zip"):
+                        LOGGER.warning("Audio Split: no variants created for %s; continuing", relative)
+                        continue
+                    try:
+                        with ZipFile(str(result), "r") as variants:
+                            prefix = ospath.splitext(relative)[0].replace(ospath.sep, "/")
+                            for member in variants.namelist():
+                                if member.endswith("/"):
+                                    continue
+                                combined.writestr(f"{prefix}/{member}", variants.read(member))
+                                successful += 1
+                    except Exception:
+                        LOGGER.warning("Audio Split: could not collect variants for %s", relative, exc_info=True)
+            if successful == 0 or not await aiopath.isfile(archive) or await get_path_size(archive) <= 0:
+                try:
+                    if await aiopath.exists(archive):
+                        os.remove(archive)
+                except Exception:
+                    pass
+                return original_up_path
+            self.name = ospath.basename(archive)
+            self.outfile = archive
+            self._up_path = archive
+            self.size = await get_path_size(archive)
+            LOGGER.info("Audio Split: packaged %d variant file(s) from %d video(s)", successful, len(video_files))
+            return archive
+        finally:
+            self.path, self._is_dir = original_path, True
+            # Keep the result path when a combined archive was successfully created.
+            if not (self._up_path and str(self._up_path).endswith("_audio_split_results.zip")):
+                self.name, self.outfile, self.size, self._up_path = original_name, original_outfile, original_size, original_up_path
+
+    async def _audio_split_single(self):
+        """Split one video into language-specific video+audio variants."""
+        import os
+        import unicodedata
+        from zipfile import ZipFile, ZIP_DEFLATED
+
+        video_path = await self._get_video()
+        if not video_path or not await aiopath.isfile(video_path):
+            LOGGER.warning("Audio Split: input video is missing")
+            return self._up_path
+
+        owner = getattr(getattr(self.listener, "message", None), "from_user", None)
+        user_id = getattr(owner, "id", None)
+        user_settings = user_data.get(user_id, {}) if user_id else {}
+        raw_langs = ((self.data or {}).get("languages")
+                     or user_settings.get("AUDIO_SPLIT_LANGUAGES") or "te,ta,hi")
+
+        # Accept ISO codes, common ISO-639-2 codes, and full English language names.
+        language_aliases = {
+            "telugu": "te", "tel": "te", "te": "te",
+            "tamil": "ta", "tam": "ta", "ta": "ta",
+            "hindi": "hi", "hin": "hi", "hi": "hi",
+            "kannada": "kn", "kan": "kn", "kn": "kn",
+            "malayalam": "ml", "mal": "ml", "ml": "ml",
+            "bengali": "bn", "bangla": "bn", "ben": "bn", "bn": "bn",
+            "marathi": "mr", "mar": "mr", "mr": "mr",
+            "gujarati": "gu", "guj": "gu", "gu": "gu",
+            "punjabi": "pa", "panjabi": "pa", "pan": "pa", "pa": "pa",
+            "urdu": "ur", "urd": "ur", "ur": "ur",
+            "odia": "or", "oriya": "or", "ori": "or", "or": "or",
+            "assamese": "as", "asm": "as", "as": "as",
+            "sanskrit": "sa", "san": "sa", "sa": "sa",
+            "nepali": "ne", "nep": "ne", "ne": "ne",
+            "sindhi": "sd", "snd": "sd", "sd": "sd",
+            "english": "en", "eng": "en", "en": "en",
+            "spanish": "es", "spa": "es", "es": "es",
+            "french": "fr", "fra": "fr", "fre": "fr", "fr": "fr",
+            "german": "de", "deu": "de", "ger": "de", "de": "de",
+            "italian": "it", "ita": "it", "it": "it",
+            "portuguese": "pt", "por": "pt", "pt": "pt",
+            "russian": "ru", "rus": "ru", "ru": "ru",
+            "japanese": "ja", "jpn": "ja", "ja": "ja",
+            "korean": "ko", "kor": "ko", "ko": "ko",
+            "chinese": "zh", "zho": "zh", "chi": "zh", "zh": "zh",
+        }
+        def normalize_language(value):
+            value = unicodedata.normalize("NFKC", str(value or "")).strip().lower()
+            value = value.replace("_", "-")
+            # Tags can be e.g. en-US, Telugu (India), or 'telugu audio'.
+            first = value.split("(", 1)[0].strip()
+            first = re.sub(r"\s+(audio|dub|dubbed|track)$", "", first).strip()
+            if first in language_aliases:
+                return language_aliases[first]
+            if "-" in first and first.split("-", 1)[0] in language_aliases:
+                return language_aliases[first.split("-", 1)[0]]
+            # Allow a full language name embedded in a stream title.
+            for name, code in sorted(language_aliases.items(), key=lambda item: len(item[0]), reverse=True):
+                if len(name) > 2 and re.search(r"(?<![a-z])" + re.escape(name) + r"(?![a-z])", value):
+                    return code
+            return ""
+
+        if isinstance(raw_langs, (list, tuple, set)):
+            raw_values = list(raw_langs)
+        else:
+            raw_values = re.split(r"[,;\n]+", str(raw_langs))
+        languages = list(dict.fromkeys(code for item in raw_values if (code := normalize_language(item))))
+        if not languages:
+            LOGGER.warning("Audio Split: no valid languages in setting %r", raw_langs)
+            return self._up_path
+
+        streams, _ = await get_metavideo(video_path)
+        if not isinstance(streams, list):
+            LOGGER.warning("Audio Split: ffprobe returned an invalid stream list")
+            return self._up_path
+        audio_streams = []
+        for stream in streams:
+            if not isinstance(stream, dict) or stream.get("codec_type") != "audio":
+                continue
+            tags = stream.get("tags") or {}
+            candidates = [tags.get("language"), tags.get("LANGUAGE"), tags.get("title"),
+                          tags.get("handler_name"), stream.get("language")]
+            code = next((normalized for value in candidates
+                         if (normalized := normalize_language(value))), "")
+            audio_streams.append((int(stream.get("index", -1)), code, candidates))
+        if not audio_streams:
+            LOGGER.warning("Audio Split: input contains no audio streams")
+            return self._up_path
+
+        base = ospath.splitext(ospath.basename(video_path))[0]
+        add_suffix = bool(user_settings.get("AUDIO_SPLIT_LANGUAGE_SUFFIX", False))
+        out_dir = ospath.join(self.listener.dir, f"{base}_audio_split")
+        await makedirs(out_dir, exist_ok=True)
+        made = []
+        missing_languages = []
+        for lang in languages:
+            # A requested language is optional: absence must never abort the other variants.
+            match = next(((idx, candidates) for idx, code, candidates in audio_streams
+                          if code == lang and idx >= 0), None)
+            if match is None:
+                missing_languages.append(lang)
+                LOGGER.info(
+                    "Audio Split: configured language '%s' was not found in audio metadata; skipping it",
+                    lang,
+                )
+                continue
+            stream_index, _ = match
+            # Unique paths avoid stale files and overwrite bugs on retries.
+            output_name = f"{base}_{lang}.mkv" if add_suffix else f"{base}.mkv"
+            lang_dir = ospath.join(out_dir, lang)
+            await makedirs(lang_dir, exist_ok=True)
+            output = ospath.join(lang_dir, output_name)
+            cmd = [FFMPEG_NAME, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+                   "-i", video_path, "-map", "0:v:0?", "-map", f"0:{stream_index}",
+                   "-map_metadata", "0", "-c", "copy", "-sn", "-dn", output]
+            _, stderr, code = await cmd_exec(cmd)
+            if code == 0 and await aiopath.isfile(output) and await get_path_size(output) > 0:
+                made.append((lang, output))
+            else:
+                LOGGER.warning("Audio Split: ffmpeg failed for %s (exit=%s): %s", lang, code, stderr)
+                try:
+                    if await aiopath.exists(output):
+                        os.remove(output)
+                except Exception:
+                    pass
+
+        if not made:
+            found = ", ".join(sorted({code or "unlabelled" for _, code, _ in audio_streams}))
+            LOGGER.warning("Audio Split produced no variants. Requested=%s; detected=%s", languages, found)
+            return self._up_path
+
+        archive = ospath.join(self.listener.dir, f"{base}_audio_split.zip")
+        try:
+            if await aiopath.exists(archive):
+                os.remove(archive)
+        except Exception:
+            pass
+        with ZipFile(archive, "w", ZIP_DEFLATED) as zf:
+            for lang, file in made:
+                arcname = ospath.basename(file) if add_suffix else ospath.join(lang, ospath.basename(file))
+                zf.write(file, arcname=arcname)
+        if not await aiopath.isfile(archive) or await get_path_size(archive) <= 0:
+            LOGGER.error("Audio Split: output archive was not created correctly")
+            return self._up_path
+        self.name = ospath.basename(archive)
+        self.outfile = archive
+        self._up_path = archive
+        self.size = await get_path_size(archive)
+        LOGGER.info("Audio Split complete: created %d variant(s) for %s", len(made), ",".join(lang for lang, _ in made))
+        if missing_languages:
+            LOGGER.info(
+                "Audio Split skipped unavailable configured language(s): %s",
+                ",".join(missing_languages),
+            )
+        return archive
 
     async def _audio_to_translated_subtitles(self, audio_only=False):
         """Translate embedded subtitles, or independently transcribe audio to translated SRT."""

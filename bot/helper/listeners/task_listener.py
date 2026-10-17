@@ -279,6 +279,14 @@ class TaskListener(TaskConfig):
         vt_mode = getattr(self, "vt_mode", None)
         vid_mode = getattr(self, "vidMode", None)
         selected_vt_mode = (vid_mode[0] if isinstance(vid_mode, (list, tuple)) and vid_mode else vt_mode)
+        # User-level automatic Audio Split applies to ordinary incoming tasks; an explicit -vt selection wins.
+        if (not getattr(self, "vt_requested", False)
+                and getattr(self, "user_dict", {}).get("AUDIO_SPLIT_ENABLED", False)):
+            self.vt_requested = True
+            self.vt_mode = "audio_split"
+            self.vidMode = ["audio_split", "Audio Split (Language Variants)",
+                            {"languages": getattr(self, "user_dict", {}).get("AUDIO_SPLIT_LANGUAGES", "te,ta,hi")}]
+            selected_vt_mode = "audio_split"
         defer_vt_video_merge = bool(
             getattr(self, "vt_requested", False) and selected_vt_mode == "vid_vid"
         )
@@ -305,6 +313,24 @@ class TaskListener(TaskConfig):
                 from ..telegram_helper.filters import CustomFilters
                 gid = token_urlsafe(12)
                 mode_name = getattr(self, "vt_mode", None) or self.vidMode[0]
+                # Audio Split must see extracted media, not an archive container.
+                # This also expands folders that contain nested ZIP/7z/tar archives.
+                if mode_name == "audio_split":
+                    try:
+                        if not self.is_nzb:
+                            extracted_path = await self.proceed_extract(dl_path, gid)
+                            if self.is_cancelled or not extracted_path:
+                                return
+                            dl_path = str(extracted_path)
+                            self.extract = False  # never re-extract the generated result ZIP later
+                            self.is_file = await aiopath.isfile(dl_path)
+                            await self._set_name_from_path(dl_path, self.up_dir or self.dir)
+                            self.size = await get_path_size(dl_path)
+                            LOGGER.info("Audio Split input prepared (file_or_folder=%s)", dl_path)
+                    except Exception:
+                        LOGGER.error("Audio Split input preparation/extraction failed", exc_info=True)
+                        await self.on_upload_error("Audio Split could not prepare the input archive/folder. Check the archive and extraction tools.")
+                        return
                 privileged_vt_modes = {"compress", "convert", "watermark"}
                 is_privileged = await CustomFilters.sudo("", self.message)
                 while self.vidMode:

@@ -13,7 +13,7 @@ VT_MODES = [
     ("watermark", "Watermark"), ("remove_ads_names", "Remove Ads & Names"),
     ("extract", "Extract"), ("trim", "Trim"),
     ("audio_swap", "Audio Swap"), ("audio_track", "Audio Track"),
-    ("audio_export", "Audio Export → M4A"),
+    ("audio_export", "Audio Export → M4A"), ("audio_split", "Audio Split (Language Variants)"),
     ("subtitle_translate", "Translate Existing Subtitles"),
     ("audio_to_subtitle", "Audio → Translated Subtitles (Whisper)"),
     ("video_audio_sync", "Audio Sync"), ("audio_channel", "Audio Channel"),
