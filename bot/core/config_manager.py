@@ -1,5 +1,6 @@
 from ast import literal_eval
-from importlib import import_module
+from importlib import import_module, util as importlib_util
+from pathlib import Path
 from os import getenv
 try:
     from wz_bin import bin_name
@@ -224,8 +225,11 @@ class Config:
 
     @classmethod
     def load(cls):
+        # Root config.py is the primary source; exported environment variables
+        # fill only values left empty or undefined in config.py.
         cls.load_config()
         cls.load_env()
+        cls.validate_required()
 
     @classmethod
     def load_config(cls):
@@ -236,9 +240,19 @@ class Config:
         # and old values from silently becoming runtime defaults on Heroku.
         if getenv("DYNO") or getenv("HEROKU_APP_NAME"):
             return
+        # Resolve the repository-root config.py explicitly. import_module("config")
+        # may resolve a different module when launched from a different cwd.
+        config_path = Path(__file__).resolve().parents[2] / "config.py"
+        if not config_path.is_file():
+            return
         try:
-            settings = import_module("config")
-        except ModuleNotFoundError:
+            spec = importlib_util.spec_from_file_location("_cdmlx_root_config", config_path)
+            if spec is None or spec.loader is None:
+                return
+            settings = importlib_util.module_from_spec(spec)
+            spec.loader.exec_module(settings)
+        except Exception as exc:
+            print(f"WARNING: Failed to load root config.py: {exc}")
             return
         for attr in dir(settings):
             # Accept lowercase config.py spellings too (e.g. cmd_suffix),
@@ -288,15 +302,21 @@ class Config:
             if env_value is None and key == "CMD_SUFFIX":
                 env_value = getenv("cmd_suffix")
             if env_value is not None:
+                current_value = getattr(cls, key)
+                if current_value not in (None, "", [], {}) and current_value != 0:
+                    continue
                 converted_value = cls._convert_env_type(key, env_value)
                 cls.set(key, converted_value)
-        # Validate required settings only after environment variables have been applied.
+
+    @classmethod
+    def validate_required(cls):
+        # Validate after config.py and environment fallbacks have both been loaded.
         for key in ["BOT_TOKEN", "OWNER_ID", "TELEGRAM_API", "TELEGRAM_HASH"]:
             value = getattr(cls, key)
             if isinstance(value, str):
                 value = value.strip()
             if not value:
-                raise ValueError(f"{key} variable is missing!")
+                raise ValueError(f"{key} is missing in config.py and environment variables!")
 
     @classmethod
     def _convert_env_type(cls, key, value):

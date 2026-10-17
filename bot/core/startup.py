@@ -123,14 +123,13 @@ async def load_settings():
             PART = db_partition_id(BOT_ID)
             TgClient.PARTITION = PART
         deploy_filter = {"_id": PART}
+        # Build the deployment snapshot from the same root config.py that
+        # Config.load_config() reads, independent of the current working directory.
         try:
-            settings = import_module("config")
-            config_file = {
-                key: value.strip() if isinstance(value, str) else value
-                for key, value in vars(settings).items()
-                if not key.startswith("__")
-            }
-        except ModuleNotFoundError:
+            Config.load_config()
+            config_file = Config.get_all()
+        except Exception as exc:
+            LOGGER.warning(f"Could not load root config.py snapshot: {exc}")
             config_file = {}
         config_file.update(
             {
@@ -192,6 +191,12 @@ async def load_settings():
 
         if config_dict:
             Config.load_dict(config_dict)
+
+        # MongoDB is secondary: re-apply root config.py as primary, then use
+        # environment variables only for keys that remain unset.
+        Config.load_config()
+        Config.load_env()
+        Config.validate_required()
 
         if pf_dict:
             for key, value in pf_dict.items():
