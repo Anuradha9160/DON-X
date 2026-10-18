@@ -1595,24 +1595,57 @@ class VidEcxecutor(FFProgress):
 
         base = ospath.splitext(ospath.basename(video_path))[0]
         add_suffix = bool(user_settings.get("AUDIO_SPLIT_LANGUAGE_SUFFIX", False))
+        # Use readable language names in suffixes (e.g. _Telugu, _Tamil), not
+        # internal ISO codes. Apply this to every successfully generated variant.
+        language_suffix_names = {
+            "te": "Telugu", "ta": "Tamil", "hi": "Hindi", "kn": "Kannada",
+            "ml": "Malayalam", "bn": "Bengali", "mr": "Marathi", "gu": "Gujarati",
+            "pa": "Punjabi", "ur": "Urdu", "or": "Odia", "as": "Assamese",
+            "sa": "Sanskrit", "ne": "Nepali", "sd": "Sindhi", "en": "English",
+            "es": "Spanish", "fr": "French", "de": "German", "it": "Italian",
+            "pt": "Portuguese", "ru": "Russian", "ja": "Japanese", "ko": "Korean",
+            "zh": "Chinese",
+        }
         out_dir = ospath.join(self.listener.dir, f"{base}_audio_split")
         await makedirs(out_dir, exist_ok=True)
         made = []
         missing_languages = []
+        # Some releases have multiple audio tracks but omit language tags entirely.
+        # Preserve explicitly tagged matches first, then map remaining requested languages
+        # to unlabelled tracks in their original order. Never re-use a stream for two variants.
+        used_stream_indexes = set()
+        unlabelled_indexes = [idx for idx, code, _ in audio_streams if idx >= 0 and not code]
+        fallback_by_language = {}
+        pending_languages = [lang for lang in languages if not any(code == lang and idx >= 0 for idx, code, _ in audio_streams)]
+        for lang, idx in zip(pending_languages, unlabelled_indexes):
+            fallback_by_language[lang] = idx
+
         for lang in languages:
             # A requested language is optional: absence must never abort the other variants.
             match = next(((idx, candidates) for idx, code, candidates in audio_streams
-                          if code == lang and idx >= 0), None)
-            if match is None:
+                          if code == lang and idx >= 0 and idx not in used_stream_indexes), None)
+            if match is not None:
+                stream_index, _ = match
+            elif lang in fallback_by_language:
+                stream_index = fallback_by_language[lang]
+                LOGGER.warning(
+                    "Audio Split: stream %s has no language tag; assigning it to configured language '%s' by track order",
+                    stream_index, lang,
+                )
+            else:
                 missing_languages.append(lang)
                 LOGGER.info(
                     "Audio Split: configured language '%s' was not found in audio metadata; skipping it",
                     lang,
                 )
                 continue
-            stream_index, _ = match
+            if stream_index in used_stream_indexes:
+                missing_languages.append(lang)
+                continue
+            used_stream_indexes.add(stream_index)
             # Unique paths avoid stale files and overwrite bugs on retries.
-            output_name = f"{base}_{lang}.mkv" if add_suffix else f"{base}.mkv"
+            suffix_text = language_suffix_names.get(lang, lang.upper())
+            output_name = f"{base}_{suffix_text}.mkv" if add_suffix else f"{base}.mkv"
             lang_dir = ospath.join(out_dir, lang)
             await makedirs(lang_dir, exist_ok=True)
             output = ospath.join(lang_dir, output_name)

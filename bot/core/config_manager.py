@@ -178,7 +178,7 @@ class Config:
     TG_PROXY = None
     THUMBNAIL_LAYOUT = ""
     TMDB_ACCESS_TOKEN = ""
-    AUTO_THUMBNAIL = False
+    AUTO_THUMBNAIL = True
     VERIFY_TIMEOUT = 0
     LOGIN_PASS = ""
     TORRENT_TIMEOUT = 0

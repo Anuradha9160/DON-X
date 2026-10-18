@@ -568,7 +568,7 @@ async def get_user_settings(from_user, stype="main"):
     elif stype == "leech":
         thumbpath = f"thumbnails/{user_id}.jpg"
         has_thumb = await aiopath.exists(thumbpath)
-        thumb_mode = user_dict.get("THUMBNAIL_MODE", "custom" if has_thumb else "none")
+        thumb_mode = user_dict.get("THUMBNAIL_MODE") or ("custom" if has_thumb else "auto")
         buttons.data_button("Thumbnail", f"userset {user_id} thumb_select")
         thumbmsg = f"{thumb_mode.title()} ({'Exists' if has_thumb else 'Not Exists'})"
         buttons.data_button(
@@ -688,7 +688,7 @@ async def get_user_settings(from_user, stype="main"):
         )
 
         thumb_mode_val = user_dict.get("THUMBNAIL_MODE")
-        if thumb_mode_val == "auto" or (not thumb_mode_val and user_dict.get("AUTO_THUMBNAIL", False)):
+        if thumb_mode_val == "auto" or (not thumb_mode_val and user_dict.get("AUTO_THUMBNAIL", getattr(Config, "AUTO_THUMBNAIL", True))):
             auto_thumb = "Enabled"
         else:
             auto_thumb = "Disabled"
@@ -720,7 +720,7 @@ async def get_user_settings(from_user, stype="main"):
     elif stype == "thumb_select":
         thumbpath = f"thumbnails/{user_id}.jpg"
         has_thumb = await aiopath.exists(thumbpath)
-        cur_mode = user_dict.get("THUMBNAIL_MODE", "custom" if has_thumb else "none")
+        cur_mode = user_dict.get("THUMBNAIL_MODE") or ("custom" if has_thumb else "auto")
 
         a_state = "✓ " if cur_mode == "auto" else ""
         c_state = "✓ " if cur_mode == "custom" else ""
@@ -960,16 +960,15 @@ Configure custom video encoding, compression, and watermark overlays for uploads
             f"Audio Split on Incoming Tasks: {'✓ ON' if audio_split_enabled else 'OFF'}",
             f"userset {user_id} tog_audio_split",
         )
-        if audio_split_enabled:
-            audio_split_suffix = bool(user_dict.get("AUDIO_SPLIT_LANGUAGE_SUFFIX", False))
-            buttons.data_button(
-                f"Language Suffix in Filename: {'✓ ON' if audio_split_suffix else 'OFF'}",
-                f"userset {user_id} tog_audio_split_suffix",
-            )
-            buttons.data_button(
-                f"Audio Split Languages: {audio_split_languages}",
-                f"userset {user_id} audio_split_languages",
-            )
+        audio_split_suffix = bool(user_dict.get("AUDIO_SPLIT_LANGUAGE_SUFFIX", False))
+        buttons.data_button(
+            f"Audio Language Suffixes: {'✓ ON' if audio_split_suffix else 'OFF'}",
+            f"userset {user_id} tog_audio_split_suffix",
+        )
+        buttons.data_button(
+            f"Audio Split Languages: {audio_split_languages}",
+            f"userset {user_id} audio_split_languages",
+        )
 
         buttons.data_button("◀️ Back", f"userset {user_id} back", "footer")
         buttons.data_button(
@@ -977,6 +976,12 @@ Configure custom video encoding, compression, and watermark overlays for uploads
         )
         btns = buttons.build_menu(2)
 
+        audio_suffix_status = "Enabled" if user_dict.get("AUDIO_SPLIT_LANGUAGE_SUFFIX", False) else "Disabled"
+        audio_languages_display = escape(str(audio_split_languages))
+        audio_split_details = (
+            f"• <b>Audio Language Suffixes:</b> <b>{audio_suffix_status}</b>\n"
+            f"• <b>Split Languages:</b> <code>{audio_languages_display}</code>"
+        )
         text = f"""<b>🎬 Video Processing Tools</b>
 
 <blockquote>• <b>User:</b> {user_name}
@@ -984,7 +989,7 @@ Configure custom video encoding, compression, and watermark overlays for uploads
 • <b>Keep Original Files on Merge:</b> <b>{'Enabled' if save_files else 'Disabled'}</b>
 • <b>Audio Export Quality:</b> <code>{audio_bitrate}</code> AAC
 • <b>Automatic Audio Split:</b> <b>{'Enabled' if audio_split_enabled else 'Disabled'}</b>
-{f"• <b>Language Suffix in Filename:</b> <b>{'Enabled' if user_dict.get('AUDIO_SPLIT_LANGUAGE_SUFFIX', False) else 'Disabled'}</b>\n• <b>Split Languages:</b> <code>{escape(str(audio_split_languages))}</code>" if audio_split_enabled else "• <b>Split Languages:</b> <code>{escape(str(audio_split_languages))}</code> (saved)"}</blockquote>"""
+{audio_split_details}</blockquote>"""
 
     elif stype == "uphoster":
         uphoster_service = user_dict.get("UPHOSTER_SERVICE", "gofile")

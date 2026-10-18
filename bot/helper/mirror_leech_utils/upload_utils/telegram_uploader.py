@@ -233,7 +233,7 @@ class TelegramUploader:
 
         user_perm = self._listener.user_dict.get("THUMBNAIL") or f"thumbnails/{self._listener.user_id}.jpg"
         has_custom = await aiopath.exists(str(user_perm))
-        thumb_mode = self._listener.user_dict.get("THUMBNAIL_MODE", "custom" if has_custom else "none")
+        thumb_mode = self._listener.user_dict.get("THUMBNAIL_MODE") or ("custom" if has_custom else "auto")
 
         self._thumb = None
         if thumb_mode == "custom":
