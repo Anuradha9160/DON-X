@@ -831,7 +831,9 @@ class TelegramUploader:
                     self._corrupted += 1
                     if self._listener.is_cancelled:
                         return
-        await sleep(1)
+        # All upload calls above have been awaited. Avoid an arbitrary one-second
+        # delay before flushing grouped media; yield once so status callbacks can run.
+        await sleep(0)
         for key, value in list(self._media_dict.items()):
             for subkey, msgs in list(value.items()):
                 if len(msgs) > 1:

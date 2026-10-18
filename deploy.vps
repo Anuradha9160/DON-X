@@ -6,7 +6,11 @@ APP_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 export DEBIAN_FRONTEND=noninteractive
 
 if [[ "${EUID}" -ne 0 ]]; then
-  echo "ERROR: Run as root: sudo bash one-click-deploy.sh" >&2
+  if command -v sudo >/dev/null 2>&1; then
+    echo "Non-root login detected; requesting sudo for system packages and systemd setup..."
+    exec sudo -E bash "$APP_DIR/deploy.vps" "$@"
+  fi
+  echo "ERROR: This VPS installer needs root privileges. Log in as root or install/configure sudo for this account, then run ./one-click-deploy.sh" >&2
   exit 1
 fi
 cd "$APP_DIR"

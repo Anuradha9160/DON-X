@@ -1,55 +1,34 @@
-CANTARELLABOTS VPS deployment
-==============================
+CDML-X VPS ONE-CLICK DEPLOYMENT
+================================
 
-1. Clone/extract the project and enter its directory.
-2. Export credentials and optional settings in Bash. Do not put spaces around
-   the equals sign in `export NAME=value` assignments.
-3. Run `chmod +x deploy.vps start.sh && ./deploy.vps` as root.
+> For Ubuntu/Debian Linux VPS only. Root is required for apt packages and
+> systemd. Non-root logins are supported only when sudo privileges are available.
 
-Example (replace placeholder secrets with newly rotated credentials):
+1) Clone or extract the repository and enter its directory.
 
-    cd /bot1
-    rm -rf CDML-X
-    git clone https://github.com/hemanthbreaker3-hash/CDML-X
-    cd CDML-X
+2) Configure credentials in config.py or export them in the same shell:
 
-    export BOT_TOKEN='REPLACE_WITH_NEW_BOT_TOKEN'
-    export TELEGRAM_HASH='REPLACE_WITH_TELEGRAM_API_HASH'
-    export DATABASE_URL='REPLACE_WITH_MONGODB_URI'
-    export OWNER_ID='YOUR_TELEGRAM_USER_ID'
-    export TELEGRAM_API='YOUR_TELEGRAM_API_ID'
-    export CMD_SUFFIX='a'
+   export BOT_TOKEN='REPLACE_WITH_BOT_TOKEN'
+   export TELEGRAM_API='REPLACE_WITH_TELEGRAM_API_ID'
+   export TELEGRAM_HASH='REPLACE_WITH_TELEGRAM_API_HASH'
+   export OWNER_ID='YOUR_TELEGRAM_USER_ID'
+   export DATABASE_URL='REPLACE_WITH_MONGODB_URI'
+   export CMD_SUFFIX='a'
 
-    export START_REPO_URL='https://t.me/your_repository_channel'
-    export START_REPO_BUTTON='Repository'
-    export START_UPDATE_URL='https://t.me/your_updates_channel'
-    export START_UPDATE_BUTTON='Updates'
-    export START_DEV_URL='https://t.me/your_developer_channel'
-    export START_DEV_BUTTON='Developer'
+3) Root VPS: run `chmod +x one-click-deploy.sh deploy.vps start.sh && ./one-click-deploy.sh`.
 
-    chmod +x deploy.vps start.sh
-    ./deploy.vps
+4) Non-root login with sudo: run the same command; the script elevates itself.
+   Or explicitly use `sudo -E ./one-click-deploy.sh` to preserve exported values.
+   A non-root account without sudo cannot install system packages or services.
 
-Important:
-- Correct: `export CMD_SUFFIX="a"`
-- Incorrect: `export CMD_SUFFIX = "a"` (Bash assignment syntax error; it will not
-  set CMD_SUFFIX to `a`).
-- `CMD_SUFFIX` is optional. If omitted or empty, commands remain unsuffixed.
-  When set, standard and plugin commands register their suffixed aliases where
-  supported; the unsuffixed aliases remain available for compatibility.
-- The six START_* settings customize the start-menu buttons. The deployment
-  script persists these settings in `/etc/cantarellabots_bot.env` so they survive
-  the systemd service restart.
-- Never commit real tokens, API hashes, or database URIs to Git. Rotate any
-  credential that has been pasted into a public or shared chat.
+5) Check status: `systemctl status cantarellabots_bot --no-pager -l`
+   Follow logs: `journalctl -u cantarellabots_bot -f`
 
-Check deployment:
+Optional start buttons: START_REPO_URL, START_REPO_BUTTON, START_UPDATE_URL,
+START_UPDATE_BUTTON, START_DEV_URL, START_DEV_BUTTON. CMD_SUFFIX is optional.
 
-    systemctl status cantarellabots_bot --no-pager -l
-    journalctl -u cantarellabots_bot -f
+Upload speeds depend on VPS routing, Telegram, CPU, storage, and account limits.
+A 100 Mbps link has a theoretical maximum of 12.5 MB/s before overhead; no
+software patch can guarantee that rate.
 
-
-Deployment validation fix (October 2026): required OWNER_ID, TELEGRAM_API, and
-TELEGRAM_HASH values may be supplied as exported environment variables, shell
-assignments near the top of deploy.vps, or values in config.py. The deploy script
-validates the resolved values and persists the effective environment for systemd.
+Never share or commit real tokens, API hashes, or database credentials.
