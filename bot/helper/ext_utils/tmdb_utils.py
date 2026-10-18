@@ -89,12 +89,17 @@ def clean_poster_title(raw_title):
             title = head if len(head) > 1 else tail
             return _final_clean(title), None
 
-    years = list(re.finditer(r"\b(?:19|20)\d{2}\b", title))
-    if years:
-        last = years[-1]
-        head = title[: last.start()].strip()
-        tail = title[last.end() :].strip()
-        return _final_clean(head if len(head) > 1 else tail), last.group(0)
+    # A release year is the boundary between the real title and release
+    # metadata. Use the first year (not the last), so language tags, codecs,
+    # uploader names, and other trailing text can never become part of the
+    # catalogue search title. Example: "Salaar Part 1 Ceasefire 2023 BRRip
+    # Hi Te Ta Ml Kn 720p X264 AVC HE-AAC 2.0 ESub CineVood.mkv" becomes
+    # title="Salaar Part 1 Ceasefire", year="2023".
+    year_match = re.search(r"\b(?:19|20)\d{2}\b", title)
+    if year_match:
+        head = title[: year_match.start()].strip()
+        tail = title[year_match.end() :].strip()
+        return _final_clean(head if len(head) > 1 else tail), year_match.group(0)
 
     # If there is no year/episode marker, stop at the first technical release
     # token so encodes, languages, codecs, and uploader decorations are not
@@ -250,15 +255,23 @@ async def get_imdb_thumbnail_link(title, year=None, as_doc=False):
             candidate_title = getattr(candidate, "title", "")
             normalized = _normalize_title(candidate_title)
             similarity = SequenceMatcher(None, target, normalized).ratio()
+            # Exact/contained title matches should outrank similarly named
+            # entries. This is especially important for multi-part Indian
+            # movie titles such as "Salaar Part 1 Ceasefire".
+            if normalized == target:
+                similarity += 0.50
+            elif normalized and (normalized in target or target in normalized):
+                similarity += 0.20
             kind = str(getattr(candidate, "kind", "") or "").casefold()
-            # A series release filename is cleaned to its show name, so prefer
-            # the series title over a similarly named episode or movie.
             if "series" in kind or "miniseries" in kind:
                 similarity += 0.08
             elif "episode" in kind:
-                similarity -= 0.08
-            if search_year and str(getattr(candidate, "year", "")) == str(search_year):
-                similarity += 0.04
+                similarity -= 0.12
+            candidate_year = str(getattr(candidate, "year", "") or "")
+            if search_year and candidate_year == str(search_year):
+                similarity += 0.15
+            elif search_year and candidate_year.isdigit():
+                similarity -= min(abs(int(candidate_year) - search_year) * 0.01, 0.10)
             return similarity
 
         candidates.sort(key=candidate_score, reverse=True)

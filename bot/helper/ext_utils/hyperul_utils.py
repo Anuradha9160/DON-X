@@ -55,95 +55,19 @@ class HypertgUpload(HypertgTransfer):
         return bool(getattr(Config, "AUTO_THUMBNAIL", False) if legacy is None else legacy)
 
     async def _make_hd_thumbnail(self, thumb, file_path):
-        """Enhance the selected thumbnail when HD mode is enabled.
+        """Keep the selected artwork untouched when HD thumbnail mode is on.
 
-        This runs after custom/automatic/random thumbnail selection, so the
-        same treatment applies to every selected source. Upscaling improves
-        output dimensions but cannot recreate detail absent from the source.
-        Telegram itself may still resize its small preview thumbnail.
+        Do not apply blur-like filters, artificial sharpening, contrast changes,
+        or an upscale/downscale cycle here. Telegram requires its attached
+        thumbnail to be JPEG, at most 320x320, and below its size limit; the
+        final Telegram-specific conversion handles those unavoidable limits
+        using the highest quality that fits.
         """
         if not self._listener.user_dict.get("HD_THUMBNAIL", False):
             return thumb
         if not thumb or thumb == "none" or not await aiopath.exists(str(thumb)):
             return thumb
-
-        import os
-        from PIL import ImageEnhance, ImageFilter, ImageOps
-
-        def _resize():
-            try:
-                with Image.open(thumb) as source:
-                    # Work in RGB and avoid repeatedly recompressing the input.
-                    image = source.convert("RGB")
-                    width, height = image.size
-                    longest = max(width, height)
-                    # Keep output crisp without producing multi-megabyte 8K
-                    # thumbnails that Telegram will immediately shrink again.
-                    target = 2560
-                    if longest < target:
-                        scale = target / float(longest)
-                        size = (max(1, round(width * scale)), max(1, round(height * scale)))
-                        resampling = getattr(Image, "Resampling", Image)
-                        image = image.resize(size, getattr(resampling, "LANCZOS", Image.LANCZOS))
-
-                    # Polish the selected source without replacing its artwork.
-                    # Lanczos improves resampling; gentle brightness, contrast,
-                    # color and edge sharpening improve perceived clarity. Upscaling
-                    # cannot recreate detail that was not present in the source.
-                    image = ImageOps.autocontrast(image, cutoff=0.2)
-                    image = ImageEnhance.Brightness(image).enhance(1.055)
-                    image = ImageEnhance.Contrast(image).enhance(1.12)
-                    image = ImageEnhance.Color(image).enhance(1.04)
-                    image = ImageEnhance.Sharpness(image).enhance(1.08)
-                    image = image.filter(
-                        ImageFilter.UnsharpMask(radius=1.4, percent=115, threshold=3)
-                    )
-
-                    # Use FFmpeg's high-quality scaler/sharpening when available;
-                    # Pillow remains the reliable fallback on minimal VPS images.
-                    # Avoid shell=True and keep a bounded timeout.
-                    import shutil
-                    import subprocess
-                    os.makedirs("thumbnails/hd", exist_ok=True)
-                    digest = hashlib.sha256(
-                        f"{self._listener.user_id}:{file_path}:{thumb}".encode()
-                    ).hexdigest()[:16]
-                    output = f"thumbnails/hd/{digest}.jpg"
-                    image.save(
-                        output,
-                        "JPEG",
-                        quality=96,
-                        subsampling=0,
-                        optimize=True,
-                        progressive=True,
-                    )
-                    ffmpeg = shutil.which("ffmpeg")
-                    if ffmpeg:
-                        enhanced = output + ".ff.jpg"
-                        try:
-                            result = subprocess.run(
-                                [ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
-                                 "-i", output, "-vf", "scale='min(2560,iw)':-2:flags=lanczos,unsharp=5:5:0.45:3:3:0.15",
-                                 "-frames:v", "1", "-q:v", "2", enhanced],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                timeout=20, check=False,
-                            )
-                            if result.returncode == 0 and os.path.isfile(enhanced) and os.path.getsize(enhanced) > 0:
-                                os.replace(enhanced, output)
-                            elif os.path.exists(enhanced):
-                                os.remove(enhanced)
-                        except Exception:
-                            try:
-                                if os.path.exists(enhanced):
-                                    os.remove(enhanced)
-                            except OSError:
-                                pass
-                    return output
-            except Exception as exc:
-                LOGGER.warning(f"HD thumbnail enhancement failed; using original thumbnail: {exc}")
-                return thumb
-
-        return await sync_to_async(_resize)
+        return thumb
 
     async def _get_auto_thumb(
         self, file_path, is_video=False, duration=0, is_audio=False, as_doc=False
@@ -219,7 +143,12 @@ class HypertgUpload(HypertgTransfer):
 
         user_perm = self._listener.user_dict.get("THUMBNAIL") or f"thumbnails/{self._listener.user_id}.jpg"
         has_custom = await aiopath.exists(str(user_perm))
-        thumb_mode = self._listener.user_dict.get("THUMBNAIL_MODE", "custom" if has_custom else "none")
+        # Use the same default mode for every upload path: a saved custom thumb
+        # is preferred only when present; otherwise automatic artwork is enabled.
+        thumb_mode = self._listener.user_dict.get("THUMBNAIL_MODE") or (
+            "custom" if has_custom else "auto"
+        )
+        hd_thumbnail = bool(self._listener.user_dict.get("HD_THUMBNAIL", False))
 
         duration = 0
         width = 480
@@ -273,7 +202,13 @@ class HypertgUpload(HypertgTransfer):
                     with Image.open(thumb) as img:
                         img = img.convert("RGB")
                         img.thumbnail((320, 320), Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS)
-                        img.save(doc_thumb, "JPEG", quality=90)
+                        img.save(
+                            doc_thumb,
+                            "JPEG",
+                            quality=100 if hd_thumbnail else 90,
+                            subsampling=0 if hd_thumbnail else -1,
+                            optimize=True,
+                        )
                     thumb = doc_thumb
                 except Exception as e:
                     LOGGER.warning(f"Document thumbnail formatting error: {e}")
@@ -292,7 +227,10 @@ class HypertgUpload(HypertgTransfer):
             key = "photos"
 
         if thumb and thumb != "none" and await aiopath.exists(str(thumb)):
-            formatted_t = await sync_to_async(format_tg_thumbnail, thumb)
+            formatted_t = await sync_to_async(
+                format_tg_thumbnail, thumb, None,
+                hd_thumbnail
+            )
             if formatted_t and await aiopath.exists(str(formatted_t)):
                 thumb = formatted_t
 

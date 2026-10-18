@@ -48,7 +48,15 @@ def _convert_image(src, dst):
             im.save(dst, "JPEG", quality=quality)
 
 
-def format_tg_thumbnail(src_path, dst_path=None):
+def format_tg_thumbnail(src_path, dst_path=None, hd=False):
+    """Format a thumbnail for Telegram, preserving the best quality possible.
+
+    Telegram imposes a 320x320 and roughly 200 KB limit on attached thumbs.
+    HD mode uses 4:4:4 chroma and starts at quality 100, then only reduces
+    quality as much as needed to satisfy that hard platform limit. This shared
+    path is used for selected/custom thumbnails and fetched automatic artwork,
+    so both modes receive the same HD treatment.
+    """
     if not src_path or not ospath.exists(src_path):
         return None
     if not dst_path:
@@ -60,12 +68,16 @@ def format_tg_thumbnail(src_path, dst_path=None):
             resample = Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
             img.thumbnail((320, 320), resample)
 
-            quality = 90
-            img.save(dst_path, "JPEG", quality=quality)
+            quality = 100 if hd else 90
+            subsampling = 0 if hd else -1
+            img.save(dst_path, "JPEG", quality=quality, subsampling=subsampling, optimize=True, progressive=True)
 
-            while ospath.getsize(dst_path) > 195 * 1024 and quality > 10:
-                quality -= 10
-                img.save(dst_path, "JPEG", quality=quality)
+            # Telegram's thumb-size ceiling is mandatory. In HD mode, lower
+            # quality in small steps instead of applying filters or over-compressing.
+            step = 2 if hd else 10
+            while ospath.getsize(dst_path) > 195 * 1024 and quality > (20 if hd else 10):
+                quality = max(20 if hd else 10, quality - step)
+                img.save(dst_path, "JPEG", quality=quality, subsampling=subsampling, optimize=True, progressive=True)
 
         return dst_path
     except Exception as e:
