@@ -311,7 +311,7 @@ class GoogleDriveHelper:
     def escapes(self, estr):
         chars = ["\\", "'", '"', r"\a", r"\b", r"\f", r"\n", r"\r", r"\t"]
         for char in chars:
-            estr = estr.replace(char, f"\\{char}")
+            estr = estr.replace(char, "\\" + char)
         return estr.strip()
 
     async def cancel_task(self):

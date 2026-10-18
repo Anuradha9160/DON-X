@@ -10,6 +10,7 @@ from collections import OrderedDict
 from json import loads
 from os import getenv
 from re import compile as re_compile
+from socket import socket, AF_INET, SOCK_STREAM
 from subprocess import PIPE
 from urllib.parse import quote
 
@@ -723,19 +724,49 @@ def build_app():
     return app
 
 
+def _available_stream_port(start):
+    """Return the first available loopback port, preferring STREAM_PORT."""
+    for candidate in range(start, min(start + 20, 65536)):
+        with socket(AF_INET, SOCK_STREAM) as sock:
+            try:
+                sock.bind(("127.0.0.1", candidate))
+            except OSError:
+                continue
+            return candidate
+    raise OSError(f"No free stream port found between {start} and {min(start + 19, 65535)}")
+
+
 async def start_stream_server():
     global _runner
     if _runner is not None:
         return
-    port = stream_port()
+    requested_port = stream_port()
     try:
+        port = _available_stream_port(requested_port)
         _runner = web.AppRunner(build_app(), access_log=None)
         await _runner.setup()
         await web.TCPSite(_runner, "127.0.0.1", port).start()
+        if port != requested_port:
+            LOGGER.warning(
+                f"Stream port {requested_port} is already in use; using {port}. "
+                "Set STREAM_PORT to this port for the web frontend/reverse proxy."
+            )
+            # Keep the web frontend's stream URL in sync when it runs in this process.
+            try:
+                from web import wserver
+                wserver.STREAM_PORT = str(port)
+                wserver.STREAM_BASE = f"http://127.0.0.1:{port}"
+            except Exception as sync_error:
+                LOGGER.warning(f"Could not update frontend stream URL: {sync_error}")
         LOGGER.info(f"Stream server listening on 127.0.0.1:{port}")
     except Exception as e:
+        if _runner is not None:
+            try:
+                await _runner.cleanup()
+            except Exception:
+                pass
         _runner = None
-        LOGGER.error(f"Failed to start stream server on {port}: {e}")
+        LOGGER.error(f"Failed to start stream server from {requested_port}: {e}")
 
 
 async def stop_stream_server():

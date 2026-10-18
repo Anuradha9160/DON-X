@@ -64,6 +64,17 @@ fi
 trap 'rc=$?; if [[ $rc -ne 0 ]]; then echo "Deployment failed (exit $rc). Logs: journalctl -u ${SERVICE_NAME} -n 100 --no-pager" >&2; fi' EXIT
 
 echo "=== CANTARELLABOTS VPS deployment (BOT_TOKEN environment mode) ==="
+# Fail early on syntax errors before expensive dependency installation.
+python3 - <<'PY_SYNTAX_PREFLIGHT'
+from pathlib import Path
+import py_compile
+files = sorted(Path(".").rglob("*.py"))
+for path in files:
+    if any(part in {"venv", ".venv", "__pycache__"} for part in path.parts):
+        continue
+    py_compile.compile(str(path), doraise=True)
+print(f"Python syntax preflight passed ({len(files)} source files discovered).")
+PY_SYNTAX_PREFLIGHT
 echo "App directory: $APP_DIR"
 if [[ -n "${CMD_SUFFIX:-${cmd_suffix:-}}" ]]; then
   echo "Command suffix: configured"

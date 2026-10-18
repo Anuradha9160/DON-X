@@ -67,18 +67,12 @@ async def imdb_search(_, message):
             else:
                 return await edit_message(k, "<i>No Results Found</i>")
         else:
-            try:
-                movies = await sync_to_async(get_poster, title, bulk=True)
-            except Exception as err:
-                from logging import getLogger
-                getLogger(__name__).warning("IMDb search failed for %r: %s", title, err, exc_info=True)
-                movies = None
+            movies = await sync_to_async(get_poster, title, bulk=True)
             if not movies:
                 return await edit_message(
                     k, "<i>No Results Found</i>, Try Again or Use <b>Title ID</b>"
                 )
-            # Keep the selection menu within Telegram's practical callback/button limits.
-            for movie in movies[:10]:
+            for movie in movies:
                 buttons.data_button(
                     f"{movie.title} ({getattr(movie, 'year', 'N/A')})",
                     f"imdb {user_id} movie {movie.id}",
@@ -110,8 +104,7 @@ def get_poster(query, bulk=False, id=False, file=None):
                 year = list_to_str(year[:1])
         else:
             year = None
-        search_result = search_title(title.lower())
-        movieid = getattr(search_result, "titles", None) or []
+        movieid = search_title(title.lower()).titles
         if not movieid:
             return None
         if year:

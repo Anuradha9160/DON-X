@@ -831,8 +831,7 @@ class TelegramUploader:
                     self._corrupted += 1
                     if self._listener.is_cancelled:
                         return
-        # No fixed one-second delay is needed here: all upload calls above are
-        # awaited, and removing this idle wait reduces completion latency.
+        await sleep(1)
         for key, value in list(self._media_dict.items()):
             for subkey, msgs in list(value.items()):
                 if len(msgs) > 1:
