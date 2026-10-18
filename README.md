@@ -51,14 +51,14 @@ chmod +x one-click-deploy.sh deploy.vps start.sh
 ./one-click-deploy.sh
 ```
 
-**Non-root VPS login with sudo permission:** use the same command. The script will request sudo when it needs system privileges. To explicitly run it through sudo:
+**Non-root VPS login with sudo permission:** use the same command. The script requests sudo and transfers only the documented deployment variables through a private temporary file; it does not use `sudo -E` or preserve your entire environment.
 
 ```bash
 chmod +x one-click-deploy.sh deploy.vps start.sh
-sudo -E ./one-click-deploy.sh
+./one-click-deploy.sh
 ```
 
-> Do not run this on shared hosting, a serverless platform, or a VPS account without root/sudo privileges. The installer uses `apt`, installs system services, and requires system-level access.
+**If sudo says your user is not allowed** (for example, `I'm sorry ... I can't do that`), stop here: this is a VPS sudoers/provider permission rule, not a script bug. Log in as root, or ask the VPS administrator/provider to grant your account the required sudo permission. No deployment script can safely override that restriction. A non-root account without root/sudo cannot install `apt` packages or create system services.
 
 ## Check service and logs
 

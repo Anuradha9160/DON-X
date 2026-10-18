@@ -5,13 +5,45 @@ POT_SERVICE_NAME="bgutil-ytdlp-pot-provider"
 APP_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 export DEBIAN_FRONTEND=noninteractive
 
+# Optional secure handoff file used when a non-root account needs sudo. This
+# avoids `sudo -E`, which many VPS sudo policies explicitly disable.
+ENV_HANDOFF=""
 if [[ "${EUID}" -ne 0 ]]; then
-  if command -v sudo >/dev/null 2>&1; then
-    echo "Non-root login detected; requesting sudo for system packages and systemd setup..."
-    exec sudo -E bash "$APP_DIR/deploy.vps" "$@"
+  if ! command -v sudo >/dev/null 2>&1; then
+    echo "ERROR: Root privileges are required for apt/systemd setup. This account has no sudo; ask the VPS administrator to run this script as root." >&2
+    exit 1
   fi
-  echo "ERROR: This VPS installer needs root privileges. Log in as root or install/configure sudo for this account, then run ./one-click-deploy.sh" >&2
-  exit 1
+  # A caller may pass variables as shell exports. Transfer only the documented
+  # deployment variables via a private temporary file instead of preserving the
+  # entire environment. This does not bypass sudo policy or grant permissions.
+  ENV_HANDOFF="$(mktemp "${TMPDIR:-/tmp}/cdmlx-deploy-env.XXXXXX")" || exit 1
+  chmod 600 "$ENV_HANDOFF"
+  for key in BOT_TOKEN OWNER_ID TELEGRAM_API TELEGRAM_HASH DATABASE_URL CMD_SUFFIX cmd_suffix \
+             START_REPO_URL START_REPO_BUTTON START_UPDATE_URL START_UPDATE_BUTTON \
+             START_DEV_URL START_DEV_BUTTON; do
+    if [[ -v "$key" ]]; then printf '%s=%q\n' "$key" "${!key}" >> "$ENV_HANDOFF"; fi
+  done
+  if ! sudo -v; then
+    rm -f "$ENV_HANDOFF"
+    echo "ERROR: sudo denied this account. The VPS administrator/provider must grant sudo access or run deployment from a root login. A script cannot bypass this server-side restriction." >&2
+    exit 1
+  fi
+  echo "Non-root login detected; requesting authorized sudo for system packages and systemd setup..."
+  set +e
+  sudo bash "$APP_DIR/deploy.vps" --env-handoff "$ENV_HANDOFF" "$@"
+  rc=$?
+  rm -f "$ENV_HANDOFF"
+  exit "$rc"
+fi
+# Import the restricted handoff created by the non-root launcher. This is a
+# shell-escaped file created with printf %q and mode 0600; consume it immediately.
+if [[ "${1:-}" == "--env-handoff" ]]; then
+  ENV_HANDOFF="${2:-}"
+  [[ -n "$ENV_HANDOFF" && -f "$ENV_HANDOFF" ]] || { echo "ERROR: deployment environment handoff is missing" >&2; exit 1; }
+  # shellcheck disable=SC1090
+  source "$ENV_HANDOFF"
+  rm -f "$ENV_HANDOFF"
+  shift 2
 fi
 cd "$APP_DIR"
 fail() { echo "ERROR: $*" >&2; exit 1; }
