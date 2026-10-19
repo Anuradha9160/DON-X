@@ -2,23 +2,26 @@
 
 > A Telegram mirror/leech bot intended for a Linux VPS. The one-click installer configures system packages, a Python virtual environment, the bot service, and its local helper services.
 
-## One-click deployment (VPS only)
+## One-click deployment (VPS)
 
-> **Supported:** Ubuntu/Debian-based Linux VPS. A root shell works directly. A non-root login is supported when `sudo` is installed and the account is allowed to use it. A non-root account without root/sudo access cannot install system packages or create system services.
+Supported on Ubuntu/Debian Linux. The installer supports two modes:
+
+- **Root/sudo mode:** installs OS dependencies, configures the PO-token helper, and creates systemd services.
+- **User-local mode:** when sudo is denied, installs Python packages into `./venv`, saves deployment settings in a private `.cdmlx-user.env`, and starts the bot as your current user. It cannot install OS packages, bind privileged ports, or create systemd services. Some bot features require administrator-installed tools such as FFmpeg, aria2, 7z, rclone, and MediaInfo.
 
 ### 1. Get the project
 
 ```bash
-cd /bot1
+cd ~/
 git clone https://github.com/hemanthbreaker3-hash/CDML-X.git CDML-X
 cd CDML-X
 ```
 
-If you already uploaded/extracted the ZIP, `cd` into the extracted `CDML-X` directory instead.
+If you already uploaded/extracted the ZIP, enter that project directory instead.
 
 ### 2. Configure credentials
 
-Set these in your shell before running the installer, or put the values in the project's `config.py`. Replace every placeholder with your own values.
+Set these in your shell before running the installer, or configure them in `config.py`:
 
 ```bash
 export BOT_TOKEN='REPLACE_WITH_BOT_TOKEN'
@@ -29,7 +32,7 @@ export DATABASE_URL='REPLACE_WITH_MONGODB_URI'
 export CMD_SUFFIX='a'
 ```
 
-Optional start-menu buttons can be set too:
+Optional start-menu buttons:
 
 ```bash
 export START_REPO_URL='https://t.me/your_repository_channel'
@@ -40,36 +43,32 @@ export START_DEV_URL='https://t.me/your_developer_channel'
 export START_DEV_BUTTON='Developer'
 ```
 
-> Keep credentials private. Never commit `config.py` containing real secrets or paste tokens into public chats. If a token has been exposed, revoke and regenerate it.
+Environment variables are saved in `.cdmlx-user.env` in user-local mode with owner-only permissions. Do not share this file or commit it. If a bot token has been exposed, revoke and regenerate it.
 
-### 3. Run the installer
-
-**Root VPS:**
+### 3. Run deployment
 
 ```bash
-chmod +x one-click-deploy.sh deploy.vps start.sh
+chmod +x one-click-deploy.sh deploy.vps deploy-user.vps start.sh
 ./one-click-deploy.sh
 ```
 
-**Non-root VPS login with sudo permission:** use the same command. The script requests sudo and transfers only the documented deployment variables through a private temporary file; it does not use `sudo -E` or preserve your entire environment.
+If you have root access, run the installer from a root shell to enable system packages and systemd. If sudo is allowed, the script requests it. If sudo is denied (for example, `sudo: Sorry, user hemanth may not run sudo`), the script automatically attempts **user-local mode** instead; this does not bypass sudo restrictions.
+
+### User-local process controls
 
 ```bash
-chmod +x one-click-deploy.sh deploy.vps start.sh
-./one-click-deploy.sh
+tail -f logs/user-bot.log          # view logs
+kill "$(cat .cdmlx-user.pid)"      # stop the current user-mode process
+./run-user.sh                      # run in foreground for troubleshooting
 ```
 
-**If sudo says your user is not allowed** (for example, `I'm sorry ... I can't do that`), stop here: this is a VPS sudoers/provider permission rule, not a script bug. Log in as root, or ask the VPS administrator/provider to grant your account the required sudo permission. No deployment script can safely override that restriction. A non-root account without root/sudo cannot install `apt` packages or create system services.
+User-local mode is not a systemd service and may stop after a VPS reboot or provider cleanup. To enable automatic boot startup or install missing system packages, ask the VPS administrator to configure those features.
 
-## Check service and logs
+### Root/sudo service controls
 
 ```bash
 systemctl status cantarellabots_bot --no-pager -l
 journalctl -u cantarellabots_bot -f
-```
-
-The YouTube token helper service is managed separately:
-
-```bash
 systemctl status bgutil-ytdlp-pot-provider --no-pager -l
 journalctl -u bgutil-ytdlp-pot-provider -f
 ```

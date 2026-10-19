@@ -25,8 +25,9 @@ if [[ "${EUID}" -ne 0 ]]; then
   done
   if ! sudo -v; then
     rm -f "$ENV_HANDOFF"
-    echo "ERROR: sudo denied this account. The VPS administrator/provider must grant sudo access or run deployment from a root login. A script cannot bypass this server-side restriction." >&2
-    exit 1
+    echo "WARNING: sudo is not permitted for this account. Switching to user-local deployment."
+    echo "NOTE: This mode cannot install OS packages or register systemd services; ask your VPS administrator to install missing system tools if needed."
+    exec bash "$APP_DIR/deploy-user.vps" "$@"
   fi
   echo "Non-root login detected; requesting authorized sudo for system packages and systemd setup..."
   set +e
